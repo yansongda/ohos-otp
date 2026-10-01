@@ -77,3 +77,41 @@ rmdir "$LOCKDIR"
 - **6 项语言探针全可用**：① `class extends Error` 的 `instanceof E` 与 `instanceof Error` 均 true；② 字符串值枚举 `String(C.A)==='A'`；③ class getter；④ `JSON.stringify` 会调用 `toJSON()`（实测输出 `[{"s":"REDACTED"}]`，Secret 脱敏方案本地可测）；⑤ **type-only import 不加载目标模块**（顶层抛异常负例验证：`import type` 通过，值导入对照触发 uncaught exception 且**测试进程挂起导致 hvigor 超时**——做此实验记得超时后 kill hvigor/RichPreviewer 进程并清理 `/tmp/ohos-otp-hvigor.lock`）；⑥ `encodeURIComponent/decodeURIComponent` 含 %20/%3A 往返正确。
 - **坑：超时命令被杀会残留 `/tmp/ohos-otp-hvigor.lock`**，后续所有持锁命令会空转 30 分钟直到超时——遇「命令迟迟不产生日志」先 `rmdir /tmp/ohos-otp-hvigor.lock`。
 - 命令模板与分支结论的权威出处：`docs/evidence/ohos-otp-lib-rfc/task-02-spike.md`。
+
+## T02 编排方裁决与后续任务统一流程（main agent 追加，2026-10-02 01:52:30）
+
+### 裁决 1：不提交 hvigor 的 modelVersion 自动迁移（保持工程配置与基线一致）
+计划 Must NOT 规定「`hvigor/hvigor-config.json5` 不改」，故 `-c modelVersion=6.1.1` 触发的写回**一律还原、不入库**、也不写进 `.gitignore`。
+**所有需要跑 hvigor 的任务，统一按以下「构建三件套」执行**（缺一即会被 F1/F4 判为越界）：
+
+```bash
+# ① 环境前缀
+export PATH="/Users/yansongda/.nvm/versions/node/v24.20.0/bin:$PATH"
+export DEVECO_SDK_HOME="/Applications/DevEco-Studio.app/Contents/sdk"
+HB=/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw
+# ② 持锁执行（用法见 §0.2）
+$HB --no-daemon -c modelVersion=6.1.1 <任务> --mode module -p module=library@default ...   # test 追加 -p testType=local
+# ③ 构建后清理（必须；否则 git status 出现 3 处噪声）
+git checkout -- oh-package.json5 hvigor/hvigor-config.json5 2>/dev/null; rm -f library/BuildProfile.ets
+rmdir /tmp/ohos-otp-hvigor.lock 2>/dev/null
+```
+
+三种用途的完整命令（T02 实测，**权威出处 = `docs/evidence/ohos-otp-lib-rfc/task-02-spike.md` §1**）：
+- 构建 HAR：`$HB --no-daemon -c modelVersion=6.1.1 assembleHar --mode module -p module=library@default -p product=default -p buildMode=release`
+- 本地单测：`$HB --no-daemon -c modelVersion=6.1.1 test --mode module -p module=library@default -p testType=local`
+- 覆盖率：在上条追加 `-p coverage=true`
+- entry 构建（T13）：`$HB --no-daemon -c modelVersion=6.1.1 assembleHap --mode module -p module=entry@default -p product=default`
+
+### 裁决 2：分支 B 已定论
+本地单测只能覆盖 **kit-free 层**（注入 fixture）；`internal/CryptoSource.ets` 与 barrel 注册链路的真实行为由 **T11 的 ohosTest 设备用例**覆盖。当前 `hdc list targets` → `[Empty]`（**无设备**），T11 预计按「未执行 + 人工步骤」记录，**严禁伪报通过**。
+
+### 验收自查工具（比看 hvigor stdout 更可靠）
+- 用例级结果：`cat library/.test/default/intermediates/test/coverage_data/test_result.txt`（含 `class=<套件名>`、`test=<用例名>`、`result=Success|Failure`、`Tests run: N, Failure: 0`）
+- 覆盖率报告：`library/.test/default/outputs/test/reports/`（`index.html` + `coverageReport.json`）
+- 构建产物：`library/build/default/outputs/default/library.har`（release 3863 B，**字节码 HAR**，包内自动含 `types: "Index.d.ets"` → T12 无需手工补 `types`）
+
+### 坑（务必继承）
+- 不用 `-c modelVersion=6.1.1` → exit 255（`00303027`）；用 `-c` 跑**实际任务**才有写回，`tasks` 只读不写盘。
+- 命令超时被 kill 后会残留 `/tmp/ohos-otp-hvigor.lock`，导致后续持锁命令空转 30 分钟 → 异常时先 `rmdir /tmp/ohos-otp-hvigor.lock`。
+- type-only import 不加载模块（已实测），但**值导入会**（顶层抛异常会让测试进程挂起、hvigor 超时）——这是「kit-free 分层」的结构性依据，也是本地套件绝不能间接 import `CryptoSource` 的原因。
+- 一级排障入口：`DEVECO_SDK_HOME` 必须指向 `/Applications/DevEco-Studio.app/Contents/sdk`。

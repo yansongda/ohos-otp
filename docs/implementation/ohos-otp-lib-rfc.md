@@ -151,7 +151,7 @@ Your next move: 执行计划。Full execution detail follows below.
 
 ### W0
 
-- [ ] 1. 工程基线（`.gitignore` + 基线 commit）
+- [x] 1. 工程基线（`.gitignore` + 基线 commit）
   **What to do**：
   1. 修改 `.gitignore`：在现有基础上补 `**/.hvigor` 与 `**/oh_modules` 两行（hvigor 构建会在**模块目录**下生成 `library/.hvigor/`、`entry/.hvigor/`，而 ohpm 可能在各模块目录下生成 `oh_modules/`；现有规则只有根级 `/.hvigor`、`/oh_modules` 匹配不到，会污染后续所有 git 洁净度验收）。同时确认 `**/build`、`**/.test` 已在（它们已在）。
   2. 检查 `git status --short`，确认除 `.gitignore` 外无需忽略的产物；若有意外产物（如 `.hvigor`、`build`、`.test`）先确认忽略规则覆盖。
@@ -175,7 +175,7 @@ Your next move: 执行计划。Full execution detail follows below.
 
 ### W1
 
-- [ ] 2. 可行性 spike（6 项实测结论快照）
+- [x] 2. 可行性 spike（6 项实测结论快照）
   **What to do**（逐项实测并把**逐字命令 + 原始输出**贴进 evidence）：
   1. **CLI 调用方式**：仓库根**没有** `hvigorw`。先直接用 DevEco 自带 `/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw`（运行前确保 node 在 PATH：`export PATH="/Users/yansongda/.nvm/versions/node/v24.20.0/bin:$PATH"`）。记录能跑通的**完整命令行**，至少覆盖：构建 HAR、本地单测、覆盖率三种用途。若必须先复制 `hvigorw`/`hvigorw.bat` 到仓库根才能跑通，则复制并说明来源；否则不要落地这两个文件，写清「使用 DevEco 绝对路径即可」。
   2. **Local Test 能否在 PC 跑**：在 `library/src/test/` 建**临时**文件 `Task02Spike.test.ets`（只含 1 条 `expect(1).assertEqual(1)`）+ 临时在 `library/src/test/List.test.ets` 注册；跑本地单测命令，记录 exit code 与输出。旧工程曾因 `pages: $profile:pages` 与 hvigor 硬编码 `main_pages` 冲突 exit 255；本仓库 entry 用 `$profile:main_pages`，需实测确认。

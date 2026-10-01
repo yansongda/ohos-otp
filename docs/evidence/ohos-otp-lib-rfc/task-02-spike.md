@@ -248,3 +248,29 @@ package/src/main/resources/base/element/string.json
 仅剩编排方维护的两个已跟踪文件改动，相较基线 `0a5d04c` **无新增未跟踪项**（本 evidence 文件提交前不计）。
 
 **遗留注意点（供后续任务）**：① 每次 CLI 构建须带 `-c modelVersion=6.1.1`，构建后如 git status 出现 `oh-package.json5`/`hvigor-config.json5` 改动与 `library/BuildProfile.ets`，按第 1 节建议处理；② `library/BuildProfile.ets` 未被 `.gitignore` 覆盖，release 构建必生成，建议编排方裁决是否纳入忽略或提交迁移。
+
+# 2026-10-02 01:50:12
+
+## 编排方（main agent）亲自验证
+
+逐条实跑 T02 Acceptance（不采信 worker 报告）：
+
+```bash
+test -f docs/evidence/ohos-otp-lib-rfc/task-02-spike.md && wc -l ...   # → 250 行            （AC1 ✓ ≥60）
+grep -c '^## ' docs/evidence/ohos-otp-lib-rfc/task-02-spike.md        # → 7                 （AC2 ✓ ≥6）
+grep -cE '结论：分支 [AB]' ...                                          # → 1（第 156 行 分支 B）（AC3 ✓）
+grep -n '结论：分支' docs/evidence/.../task-02-spike.md                 # → 156:结论：分支 B
+ls library/src/test/Task02Spike.test.ets                               # → No such file      （AC5 ✓）
+git status --short                                                     # → 仅编排方维护的两处 M（AC6 ✓）
+git log --oneline                                                      # → 428a585 / 0a5d04c
+git show --stat --oneline 428a585                                      # → evidence 250 + learning 29，未夹带临时文件
+cat library/src/test/List.test.ets                                     # → 与基线一致（仅注册 localUnitTest）✓ 已还原
+cat library/oh-package.json5                                           # → modelVersion 6.0.0 原样，未提交 hvigor 迁移 ✓
+ls library/BuildProfile.ets                                            # → No such file（构建生成物已删除）✓
+cat library/.test/default/intermediates/test/coverage_data/test_result.txt  # → Tests run: 2 … Pass: 2
+```
+
+- **分支结论复核**：worker 判定 **分支 B**，证据链完整（① import ✓ → ② createMac/createSymKeyGenerator ✓ → ③ `doFinalSync()` 不抛异常但返回空 DataBlob `len=0`，async 交叉验证同样 `hex=[] len=0`，并附 node 独立复核的期望 digest）→ 命中计划的判定标准「能 import 但调用失败 = 分支 B」。**采纳**。
+- **AC4 复核**：产物绝对路径 `library/build/default/outputs/default/library.har`（release 3863 B，gzip/tar），包内清单 18 条、含 `package/ets/modules.abc` 与自动生成的 `types: "Index.d.ets"`（字节码 HAR）；6 项语言探针逐条结论齐备（全可用，含 `JSON.stringify` 调 `toJSON`、type-only import 不加载模块的负例对照）。
+- **编排方裁决（工程配置写回）**：hvigor 的 `-c modelVersion=6.1.1` 会自动把 `oh-package.json5` 迁移写回 6.1.1 并删 `hvigor/hvigor-config.json5` 末尾换行、生成 `library/BuildProfile.ets`。计划 Must NOT 明确「`hvigor/hvigor-config.json5` 不改」，故**不提交该迁移**；统一采用「构建后清理」机械流程（`git checkout -- oh-package.json5 hvigor/hvigor-config.json5; rm -f library/BuildProfile.ets`），后续所有构建任务照此执行。该裁决已同步进 learning 文件。
+- **越界检查**：本次 commit 未夹带临时 spike 文件、未改工程配置、未 push（仓库有 origin 远端，全程只读）。
