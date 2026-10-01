@@ -222,3 +222,51 @@ library/src/main/ets/internal/HmacProvider.ets:2:import { cryptoFramework } from
 - 未改动：`entry/**`、`build-profile.json5`、`code-linter.json5`、`hvigor/hvigor-config.json5`（git status 无其改动）、`.gitignore`。
 - 未 push / 未动 remote；未引入任何依赖（`dependencies` 保持 `{}`）。
 - 构建产物（`library/build`、`library/.test`、`library/.hvigor`、`library/BuildProfile.ets`）均已清理或由 .gitignore 覆盖；提交前 `git status --short` 只剩本任务文件。
+
+# 2026-10-02 07:28:40
+
+## 编排方（main agent）亲自验证
+
+逐条实跑 T03 全部 10 条 Acceptance（不采信 worker 报告）：
+
+```bash
+grep -rn "@kit\." library/src/main/ets/ library/Index.ets
+# → 仅 library/src/main/ets/internal/CryptoSource.ets（注释行 4 + import 行 10）            AC1 ✓
+grep -rn "CryptoSource" .../Secret.ets .../HOTP.ets .../TOTP.ets .../OTPAuthURI.ets .../OtpEngine.ets
+# → 无输出                                                                                  AC2 ✓
+grep -n "HmacProvider\|RandomSource\|OtpEngine" library/Index.ets
+# → 无输出（比要求更严：连 import 上下文也无这些标识符）                                      AC3 ✓
+grep -c "throw new OtpError(OtpErrorCode.NOT_IMPLEMENTED" library/src/main/ets/internal/*.ets library/src/main/ets/*.ets
+# → 合计 40（Base32 2 / Counter 2 / CryptoSource 3 / Digits 2 / OtpEngine 2 / TimeStep 4 / Truncate 1
+#     / HOTP 5 / OTPAuthURI 2 / Secret 8 / TOTP 9；HmacProvider 0 / OtpError 0 / OtpOptions 0） ≥12  AC4 ✓
+grep -c "NOT_IMPLEMENTED" .../internal/HmacProvider.ets   # → 0（允许：只有枚举定义行）        AC5 ✓
+grep -c "resetForTest"    .../internal/HmacProvider.ets   # → 1                              AC5 ✓
+ls library/src/ohosTest/ets/test/Ability.test.ets library/src/main/ets/components/MainPage.ets library/src/test/LocalUnit.test.ets
+# → 三个 No such file or directory                                                          AC6/AC8 ✓
+test -s library/README.md && ... README-cn.md CHANGELOG.md LICENSE   # → 四件套非空            AC7 ✓
+grep "^class=" library/.test/.../test_result.txt   # → 12 个套件名与计划步骤 6 清单逐一对应    AC10 ✓
+git status --short                                 # → 空（提交后无残留）                    越界 ✓
+git show --stat 4264459                            # → 43 文件，含 3 删除，无越界文件
+```
+
+**AC9/AC10 由编排方在隔离副本中独立复跑**（避免改动仓库任何文件）：`rsync -a`（排除 `.git`/`build`/`.test`/`.hvigor`）到 `/tmp/t03-verify`，`sed` 把副本的 `oh-package.json5` modelVersion 改 6.1.1 后：
+- `hvigorw --no-daemon -c modelVersion=6.1.1 test --mode module -p module=library@default -p testType=local` → `TEST_EXIT=0`、`BUILD SUCCESSFUL in 27 s 628 ms`、`Tests run: 12, Failure: 0, Error: 0, Pass: 12, Ignore: 0`（**冷缓存全新副本可复现，非增量残留**）
+- `hvigorw --no-daemon -c modelVersion=6.1.1 assembleHar --mode module -p module=library@default -p product=default -p buildMode=release` → `BUILD_EXIT=0`、`BUILD SUCCESSFUL in 2 s 99 ms`、产物 `library.har`（10 770 B）
+- 仓库本体 `git status --short` 全程为空，`oh-package.json5` 未被改动 ✓
+
+### 内容级审查（code review，非仅 --stat）
+- `OtpError.ets`：17 个字符串枚举成员与设计 §3.5 逐字一致；`class OtpError extends Error` + `readonly code`，无用户输入拼进消息 ✓
+- `OtpOptions.ets`：`HmacOptions`/`TotpOptions`/`HotpOptions`/`VerifyOptions`/`OtpAuthParams` 字段名、可选性、顺序与设计 §3.2 字段表**逐字一致** ✓
+- `internal/HmacProvider.ets`：两接口 + 四函数 + `resetForTest()`；未注册抛 `CRYPTO_NOT_INITIALIZED`；无任何 kit 导入；模块级单例 ✓
+- `Index.ets`：只导出 13 个公开符号，internal 符号零导出；`import` 在最顶部（ArkTS 语法要求）→ 调用 → export ✓
+- `library/oh-package.json5`：`author` 为对象、description 长度合规、keywords 10 项、`dependencies: {}` 未变 ✓
+- 已删除 3 个模板文件（MainPage/LocalUnit.test/Ability.test），库内不再有 UI 符号与 hilog ✓
+
+### 采纳的机械性偏差（worker 报告 6 条，我逐条复核后采纳）
+1. **根 `oh-package.json5` 的 modelVersion 自动迁移失效**（`00303027`，与 T02 结论不同，属环境变化）：后续统一流程改为「构建前临时 sed 成 6.1.1 → 构建 → 还原」，仓库本体始终保持 6.0.0 不变。**该调整写入 learning**。
+2. `HarCompileArkTS` 增量缓存损坏会卡死构建 → `rm -rf library/build/default/cache/default/default@HarCompileArkTS` 恢复。
+3. ArkTS 要求 `import` 必须在文件顶部（`arkts-no-misplaced-imports`）。
+4. 注释里出现 `CryptoSource`/`@kit.*` 字样会被验收 grep 命中 → 措辞改写（合理：grep 就是用来锁死导入边界的）。
+5. macOS 无 GNU `timeout`，用 `kill -0` 轮询实现软超时。
+6. `library/oh-package.json5` 加 devDependencies 后无需 `ohpm install`（根 `oh_modules` 已有同版本）。
+7. 遗留待交接：`CryptoSource.installCryptoDefaults()` 目前是 `NOT_IMPLEMENTED` 占位（T03 允许），由 T07 补「只 new + 注册」实现——**已写入 T07 派发 prompt**；`Secret.generate(byteLength = 20)` 的形参名与设计 §3.2 的 `bytes` 不同，**已要求 T08 改回 `bytes`**。

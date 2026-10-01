@@ -215,7 +215,7 @@ Your next move: 执行计划。Full execution detail follows below.
 
 ### W2
 
-- [ ] 3. 脚手架（全部文件就位 + 全量注册 + 双绿基线）
+- [x] 3. 脚手架（全部文件就位 + 全量注册 + 双绿基线）
   **What to do**：
   1. 建目录 `library/src/main/ets/internal/`、`library/src/test/vectors/`。
   2. **完整写出**（不是占位）`library/src/main/ets/OtpError.ets`：`export enum OtpErrorCode`（**17 个成员，字符串值**，取值与设计 §3.5 逐字一致：`EMPTY_SECRET`/`INVALID_BASE32_CHAR`/`SECRET_TOO_SHORT`/`SECRET_TOO_WEAK`/`INVALID_ALGORITHM`/`INVALID_DIGITS`/`INVALID_PERIOD`/`INVALID_T0`/`INVALID_COUNTER`/`INVALID_TIMESTAMP`/`INVALID_WINDOW`/`INVALID_TOKEN`/`CRYPTO_FAILED`/`CRYPTO_NOT_INITIALIZED`/`INVALID_OTPAUTH_URI`/`UNSUPPORTED_OTPAUTH_TYPE`/`NOT_IMPLEMENTED`）+ `export class OtpError extends Error { readonly code: OtpErrorCode; constructor(code: OtpErrorCode, message: string) { super(message); this.code = code; } }`。消息文案固定、不含用户输入。

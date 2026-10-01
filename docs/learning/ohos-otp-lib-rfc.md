@@ -126,3 +126,48 @@ rmdir /tmp/ohos-otp-hvigor.lock 2>/dev/null
 - **QA 场景实证**：① 移除 `Index.ets` 的 `installCryptoDefaults()` 调用后本地单测仍 12/12 全绿（分支 B 下测试模块图内无 barrel，走深路径）；② 在 `HmacProvider.ets` 加一行 `import { cryptoFramework } from '@kit.CryptoArchitectureKit';` 后本地单测仍全绿（import kit 本身不失败）但 AC1 grep 必命中——这正是「验收 grep 有效性」的证明方式。
 - **`library/oh-package.json5` 新增 devDependencies 无需 `ohpm install`**：根 `oh_modules` 已含同版本 hypium/hamock，hvigor 直接解析。
 - **macOS 无 GNU `timeout`**：软超时用「后台启动 + `kill -0` 轮询 + `pkill -9 -f hvigor` + `rmdir /tmp/ohos-otp-hvigor.lock`」。
+
+## T03 脚手架完成 + 构建流程变更（main agent 追加，2026-10-02 07:32:00）
+
+### ⚠️ 重要变更：T02 的「`-c modelVersion=6.1.1` 会自动迁移根 oh-package.json5」已失效
+T03 实测（并由 T03 在 `.hvigor/report/` 中找到 03:31/03:52 两次更早的同样失败佐证）：带 `-c modelVersion=6.1.1` 跑实际任务时**不再自动迁移**，hvigor 恒报 `00303027`（hvigor-config 6.1.1 vs oh-package 6.0.0 不一致）exit 255。
+**统一后的构建流程（T03 实测可跑通，编排方已在隔离副本冷缓存复跑验证）**：
+
+```bash
+export PATH="/Users/yansongda/.nvm/versions/node/v24.20.0/bin:$PATH"
+export DEVECO_SDK_HOME="/Applications/DevEco-Studio.app/Contents/sdk"
+HB=/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw
+cd <repo>
+cp oh-package.json5 /tmp/oh-package.json5.bak                              # ① 备份
+sed -i '' 's/"modelVersion": "6.0.0"/"modelVersion": "6.1.1"/' oh-package.json5   # ② 临时迁移
+# ③ 持 hvigor 锁执行（见 §0.2；本 Wave 多任务并发时**必须**持锁）
+$HB --no-daemon -c modelVersion=6.1.1 test --mode module -p module=library@default -p testType=local
+# ④ 还原工程配置（必须！仓库里 oh-package.json5 永远保持 6.0.0）
+cp /tmp/oh-package.json5.bak oh-package.json5 && rm -f /tmp/oh-package.json5.bak
+rm -f library/BuildProfile.ets; rmdir /tmp/ohos-otp-hvigor.lock 2>/dev/null
+```
+
+- 每次构建后 `git status --short` 必须不含 `oh-package.json5` / `hvigor/hvigor-config.json5` / `library/BuildProfile.ets`。
+- **构建卡死（HarCompileArkTS 无输出、无 report）** → `rm -rf library/build/default/cache/default/default@HarCompileArkTS` 后重跑（T03 实测恢复）。
+- macOS 无 GNU `timeout`：用「后台 + `kill -0` 轮询 + `pkill -9 -f hvigor`」实现软超时；被 kill 后务必 `rmdir /tmp/ohos-otp-hvigor.lock`。
+
+### 并行提交的 git 锁（W3/W4/W6 多 worker 并发时**必须**使用）
+多个 worker 同时 `git add`/`git commit` 会撞 `.git/index.lock`，且可能误把别人的文件纳入本次提交。统一约定：
+
+```bash
+GITLOCK=/tmp/ohos-otp-git.lock
+for i in $(seq 1 120); do mkdir "$GITLOCK" 2>/dev/null && break; find /tmp -maxdepth 1 -name 'ohos-otp-git.lock' -mmin +15 -exec rmdir {} \; 2>/dev/null; sleep 5; done
+git add <仅本任务的显式文件路径>          # 严禁 git add -A / git add .
+git commit -m "<本 todo 的 message>"
+rmdir "$GITLOCK"
+```
+
+### ArkTS / 工程约束（实测）
+- `import` 必须在文件顶部（第一条语句前不得有其他语句），否则 `10605150 arkts-no-misplaced-imports`。
+- 源码与 `Index.ets` 的**注释**里也不要出现 `CryptoSource`（除 CryptoSource.ets 自身）、`@kit.` 字样——验收 grep 是全文件匹配，注释命中即判失败。
+- `library/oh-package.json5` 加 `devDependencies` 无需 `ohpm install`（根 `oh_modules` 已含同版本 hypium/hamock）。
+- 本地单测用例级结果（比 hvigor stdout 可靠）：`library/.test/default/intermediates/test/coverage_data/test_result.txt`（格式 `class=<套件>` / `test=<用例>` / `result=Success|Failure` + `Tests run: …`）。
+
+### 交接项
+- `internal/CryptoSource.ets` 的 `installCryptoDefaults()` 目前是 NOT_IMPLEMENTED 占位，**归 T07 实现**（只 new + 注册，禁止发起 crypto 调用）。
+- `Secret.generate(byteLength = 20)` 形参名与设计 §3.2 的 `bytes` 不一致，**T08 需改回 `bytes`**。
