@@ -115,3 +115,14 @@ rmdir /tmp/ohos-otp-hvigor.lock 2>/dev/null
 - 命令超时被 kill 后会残留 `/tmp/ohos-otp-hvigor.lock`，导致后续持锁命令空转 30 分钟 → 异常时先 `rmdir /tmp/ohos-otp-hvigor.lock`。
 - type-only import 不加载模块（已实测），但**值导入会**（顶层抛异常会让测试进程挂起、hvigor 超时）——这是「kit-free 分层」的结构性依据，也是本地套件绝不能间接 import `CryptoSource` 的原因。
 - 一级排障入口：`DEVECO_SDK_HOME` 必须指向 `/Applications/DevEco-Studio.app/Contents/sdk`。
+
+## T03 脚手架（worker 追加，2026-10-02 07:25:00）
+
+- **⚠️ 根 `oh-package.json5` 的 modelVersion 自动迁移已失效（影响所有后续 hvigor 任务）**：T02 记录「带 `-c modelVersion=6.1.1` 会自动把根 oh-package.json5 迁移写回 6.1.1」，本次实测该迁移**不再发生**——`-c` 只覆盖 hvigor-config.json5；`hvigor-config(6.1.1) vs 根 oh-package(6.0.0)` 不一致检查恒失败 00303027（`tasks`/`assembleHar`/`test` 一律 exit 255）。`docs/evidence/.../task-02-spike.md` §1 的「不带 -c 才失败」表述已过时。**统一处置（构建三件套升级为四件套）**：构建/单测前临时 `sed -i '' 's/"modelVersion": "6.0.0"/"modelVersion": "6.1.1"/' oh-package.json5`，完成后从备份还原（先 `cp oh-package.json5 /tmp/oh-package.json5.bak`）；提交前必须确认根 oh-package.json5 无 git 改动。佐证：`.hvigor/report/` 里 03:31/03:52 的两次 00303027 失败非 T03 产生，说明该状态从那时起即存在。
+- **⚠️ `HarCompileArkTS` 增量缓存损坏会卡死构建（后续任务遇「构建无输出卡住」先清它）**：一次 ArkTS 编译失败（如 misplaced imports）后，`library/build/default/cache/default/default@HarCompileArkTS` 会进入损坏状态，后续 assembleHar 卡在该任务（无输出、无 report、无残留进程，等 240s+ 无果；`tasks` 却正常）。处置：`rm -rf library/build/default/cache/default/default@HarCompileArkTS` 后构建恢复 ~2s 完成。单测（`.test` 目录）未观察到同类问题。
+- **ArkTS 语法红线补充：`import` 必须在文件顶部**（错误 10605150 arkts-no-misplaced-imports）——`library/Index.ets` 的正确顺序是 import → 顶层调用 `installCryptoDefaults()` → export 语句。
+- **验收 grep 是纯字面匹配，注释也不能踩**：`@kit\.`/`CryptoSource`/`HmacProvider` 等字样出现在任何注释里都会让 grep 类验收失败（T03 首版被注释命中 3 处，改写措辞后清零）。写注释时避免这些词（用「kit」「internal/*」等替代）。
+- **未使用 import 不构成编译错误**（CryptoSource.ets 骨架的 `cryptoFramework` 未被引用仅 WARN），可以放心先留 import 再让后续任务实现。
+- **QA 场景实证**：① 移除 `Index.ets` 的 `installCryptoDefaults()` 调用后本地单测仍 12/12 全绿（分支 B 下测试模块图内无 barrel，走深路径）；② 在 `HmacProvider.ets` 加一行 `import { cryptoFramework } from '@kit.CryptoArchitectureKit';` 后本地单测仍全绿（import kit 本身不失败）但 AC1 grep 必命中——这正是「验收 grep 有效性」的证明方式。
+- **`library/oh-package.json5` 新增 devDependencies 无需 `ohpm install`**：根 `oh_modules` 已含同版本 hypium/hamock，hvigor 直接解析。
+- **macOS 无 GNU `timeout`**：软超时用「后台启动 + `kill -0` 轮询 + `pkill -9 -f hvigor` + `rmdir /tmp/ohos-otp-hvigor.lock`」。

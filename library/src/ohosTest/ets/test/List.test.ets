@@ -1,5 +1,5 @@
-import abilityTest from './Ability.test';
+import cryptoAdapterTest from './CryptoAdapter.test';
 
 export default function testsuite() {
-  abilityTest();
+  cryptoAdapterTest();
 }
