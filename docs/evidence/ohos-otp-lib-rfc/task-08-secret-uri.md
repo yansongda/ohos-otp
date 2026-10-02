@@ -95,3 +95,28 @@ Error in jsonStringify_redactsSecret, -1 is not larger than 0
 
 `git add library/src/main/ets/Secret.ets library/src/main/ets/OTPAuthURI.ets library/src/test/RandomFixture.ets library/src/test/Secret.test.ets library/src/test/OtpAuthUri.test.ets library/src/test/OtpError.test.ets docs/evidence/ohos-otp-lib-rfc/task-08-secret-uri.md`
 `git commit -m "feat(otp): 实现 Secret 规范化/校验/生成/脱敏与 OTPAuth URI 解析生成"`
+
+# 2026-10-02 09:40:20
+
+## 编排方（main agent）亲自验证（隔离副本 commit `72d0e92` + 两处破坏-变红）
+
+**方法**：`git archive 72d0e92` + `oh_modules` → `/tmp/v-t08`，持 hvigor 锁冷缓存实跑（**判据用 `test_result.txt` 的 `Failure` 计数，不用 exit code**）。
+
+| Acceptance | 命令 | 实测 |
+|---|---|---|
+| 1. 3 套件全绿 | `test … -p testType=local` | `Tests run: 176, Failure: 0, Error: 0, Pass: 176`（`secretTest` 10、`otpAuthUriTest` 20、`otpErrorTest` 4 全 Success）✓ |
+| 2. 无 `URLSearchParams`/kit | `grep -rn "URLSearchParams\|@kit\." Secret.ets OTPAuthURI.ets` | 无输出 ✓ |
+| 3. 无明文 `toString()` | `grep -n "toString" Secret.ets` | 仅第 6 行**注释**说明「刻意不实现 `toString()`」，无方法定义 ✓ |
+| 4. 用例数 | `grep -c "it("` | `OtpAuthUri.test.ets` **20** ≥18 ✓；`OtpError.test.ets` **4** ≥4 ✓ |
+| 5. `RandomFixture` 已真实实现 | `grep -c "random(\|lastRequestedBytes" RandomFixture.ets` | **4** ≥2 ✓（`lastRequestedBytes` 记录 + 递增字节序列，非 T03 占位） |
+| 6. 无占位 | `grep -c "NOT_IMPLEMENTED" Secret.ets OTPAuthURI.ets` | `0 / 0` ✓ |
+
+**内容级审查**：
+- `Secret`：`fromBytes` 用 `new Uint8Array(bytes)` 拷贝入参、`get bytes()` 返回拷贝、`generate(bytes)` 已按设计 §3.2 把形参名从 `byteLength` 改回 **`bytes`**（T03 交接项闭环）、`toJSON()` 返回 `'[REDACTED]'`、**无 `toString()`**、错误消息全为固定文案（无密钥拼接）、随机源经 `requireRandom()`（未 import kit）。
+- `OTPAuthURI.parse`：scheme 大小写不敏感；type 小写化并限定 `totp`/`hotp`；label 先 `decodeURIComponent`（`try/catch` 回退原串）再切首个冒号，回退路径兼容 `%3A`；query 手写 `&`/`=` 拆分（**未用 `URLSearchParams`**）；未知参数忽略；`secret` 经 `decode`+`encode` 规范化成大写无填充 base32；`algorithm` 大小写不敏感映射否则 `INVALID_ALGORITHM`；`period`/`counter` 按 type 分支读取并校验；**query `issuer` 优先于 label 前缀**；`type` 字段用 `OtpType` 枚举输出。
+- `OTPAuthURI.build`：参数顺序固定 `secret, issuer, algorithm, digits, period|counter`；`algorithm` 始终输出；`digits != 6` 才输出；TOTP `period != 30` 才输出；HOTP 始终输出 `counter`；label 两部分各自 `encodeURIComponent` 且冒号保留；为空方省略。
+
+**编排方独立破坏实验（两处 red 点均被抓住）**：
+1. 去掉 `digits` 的 6/7/8 校验 → `Failure: 1`（`INVALID_DIGITS` 用例变红）✓
+2. 删掉 `Secret.toJSON()` → `Failure: 1`（脱敏用例变红）✓
+   两处均随后还原并**复跑至 `Failure: 0`**（176/176）✓

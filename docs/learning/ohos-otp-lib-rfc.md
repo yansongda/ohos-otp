@@ -252,3 +252,46 @@ grep -E "^class=|^test=|^result=" library/.test/default/intermediates/test/cover
 - 「hvigor 锁 + git 锁 + 只 add 显式路径」三件套即可让 4 个 worker 并发互不干扰；提交后工作区只剩编排方维护的 `M docs/**`（预期）。
 - 共享文档（`docs/learning/ohos-otp-lib-rfc.md`、`docs/implementation/**`）在并发 Wave 中**由 worker 只追加、不提交**，由编排方在 Wave 末统一记账提交，避免相互夹带。
 - 并行期单测的 `Tests run` 总数会随其他任务落地而增长（12 → 38 → 70 → 85），**判定只看 `Failure: 0`**，不要拿总数做断言。
+
+## T09 编排引擎 + 黄金向量 fixture（worker 追加，2026-10-02 08:55:00）
+
+- **`grep -c "it("` 是字面量行数，不是运行时用例数**：初版用 for 循环注册 `it()`（运行时 61 条、字面 23 行）不满足 AC「≥45」；验收按字面量，须逐条展开显式 `it(`。与「注释别写 it(」同一计数语义。
+- **ArkTS 对象字面量三条红线（本任务踩全）**：① 接口字段不能用内联对象字面量类型 `{a: string}`（`arkts-no-obj-literals-as-types`）；② 数组字面量元素若含内联对象字面量类型会连带报 `arkts-no-noninferrable-arr-literals`；③ 无类型注解的对象字面量赋值必须对应具名 interface/class（`arkts-no-untyped-obj-literals`）。处置：`BOUNDARY_COUNTERS` 的 `{digest,code6,code8}` 提为 `BoundaryAlg` 具名接口；`SEEDS` 声明 `Seeds` 接口；测试参数对象显式 `: EngineParams`。
+- **`internal/*` 均为具名函数导出**（`toBytes`/`apply`/`format`/`step` 等），不是命名空间对象——`import { Counter }` 会报「no exported member」；须按名导入，重名冲突用 `as` 别名（`apply as truncateApply`）。
+- **fixture 表键用引擎同源的 `toBytes` 生成 message hex**：保证装表键与引擎实际传入 message 逐字节一致，避免「表键口径不同导致假红/假绿」。
+- **QA① 的 sed 陷阱**：`s/& 0x0f/& 0x0e/` 的 `&` 在替换串中展开为整段匹配文本，产物是 `& 0x0f 0x0e` 编译错误（不是红点）。破坏实验用纯字面替换 `s/0x0f/0x0e/`，或先备份再 python replace，避免 `&` 展开。
+- **QA 红点实测值（供 F 审查）**：① Truncate `0x0f→0x0e` → `Failure: 26`（otpEngineTest 23 + truncateTest 3，RFC 向量大面积红）；② TimeStep.step 外层 `floor→round` → `Failure: 16`（otpEngineTest 12 个 RFC6238 时间点 + timeStepTest 4）；③ fixture 未命中改返零值数组 → `Failure: 1`（仅 `fixture_miss_throws`）。均还原，`git diff` 与 HEAD 无差异。
+- **W4 并发下 test_result.txt 的 `Tests run` 总数会随 T08 落地增长（145→176）**：判定只看 `Failure: 0` + 自己的套件；`rm -f` 后再跑仍可能累计多轮，别拿总数断言。
+- **verify 窗口语义实现**：负候选（candidate<0）与超 2^53-1 候选跳过而非报错；扫完全部候选才返回首个命中 delta（不提前 return）；token 校验先于 window 校验（todo 顺序 ①②）。
+
+## T09 引擎与向量验证方法（main agent 追加，2026-10-02 09:17:00）
+
+- **最强验证手段（推荐复核黄金向量时复用）**：用 `node` 的 `crypto.createHmac` + 手写动态截断，**独立复算** `RfcVectors.ets` 的每一个 digest/码值再逐项比对（编排方本次做了 **112 项检查，0 项真实不一致**）。注意这不是「自证」：复算用的是与 ArkTS 完全无关的实现，且复算脚本只是**校验**，不参与 fixture 生成。
+- **无填充 base32 的位数公式**：输出字符数 = `ceil(bits/5)`，**不是** `bytes×8`。32 字节 → 52 字符（260 位）；64 字节 → 103 字符（515 位）。按位长反推会误判为「不一致」（编排方初次检查脚本即踩此坑），正确做法是用 base32 解码后与原始字节逐字节比对。A.1 三算法 seed 的 base32 规范形已用真实解码器复核：**逐字节相等**。
+- `OtpEngine.verify` 的正确形态：用 `firstMatch` 记录首个命中后**继续扫完整个窗口**（不得提前 return），`candidate < 0 || !isSafeCounter(candidate)` 跳过；`OtpEngine.ets` 内应**完全没有 `%`**（取模只在 `Digits.format`）。
+- `HmacFixture.sign` 未命中必须 `throw`，并有专门用例（`fixture_miss_throws`）锁定；**绝不允许返回零值数组**。
+
+## T08 Secret + OTPAuth URI 规范化层（worker 追加，2026-10-02 08:57:21）
+
+- **W4 并发实测**：T09 先持锁构建时把 oh-package.json5 迁到 6.1.1，其释放锁前已还原为 6.0.0（我拿到锁时确认是 6.0.0）。拿锁后立刻自检 modelVersion 再决定是否 sed；还原用自己的唯一备份名（`/tmp/oh-package-t08.bak`），避免踩共享 `/tmp/oh-package.json5.bak`（T06 已踩）。
+- **waiting-for-lock 经验**：等锁用「`mkdir` 轮询 + 每 10s 一次 + 上限」，T09 用完释放后约 50s 拿到；不要在无锁时跑 hvigor（含 `tasks` 只读命令也建议持锁，避免与对方写盘竞态）。
+- **`assertLargerOrEqual(0)` 可用来断言 `indexOf >= 0`**（hypium 已含该方法，`json.indexOf('[REDACTED]') >= 0` 脱敏断言可用）；`assertEqual` 是严格 `===`，`assertEqual(undefined)` 对 undefined 字段可用（parse 结果可选字段比对）。
+- **`OtpError instanceof` 双真在真实套件里实测通过**（`instanceof Error` 与 `instanceof OtpError` 均 true），无需改错误模型——T02 探针结论在 hypium 运行时再次确认。
+- **ArkTS `Map<string,string>` 可用**（query 手写拆分用 Map 存键值，编译通过）；`params.get(k)` 返回 `string | undefined`，判空用 `=== undefined`。
+- **枚举值字符串拼接可用**：`'algorithm=' + params.algorithm`（OtpAlgorithm 字符串枚举）编译与运行均正确输出 `algorithm=SHA1`。
+- **ArkTS 可选链/接口可选字段**：`result.period = period` 对可选字段赋值合法；`params.issuer === undefined ? '' : params.issuer` 模式可安全取默认值（避免 `??` 在部分旧版 ArkTS 工具的兼容疑虑，直接用三元）。
+- **QA 红点实测值（供 F 审查）**：① 去掉 parse 的 digits 校验（digits=5 不再抛）→ `Failure: 1`，唯一红点 `parse_failInvalidDigits`（`expect true, actualValue is false`）；② 删掉 `Secret.toJSON()` → `Failure: 1`，唯一红点 `jsonStringify_redactsSecret`（`-1 is not larger than 0`），`stringConversion_doesNotLeakSecret` 仍绿（无 toString 时 String() 本来就不含明文）。均还原后 176/176 全绿。
+- **验收 grep 注释红线再次验证**：Secret/OTPAuthURI 的注释里绝不能出现 `@kit.`/`URLSearchParams` 字面量（即使是无害措辞）；写「不依赖平台 URL 查询解析 API」替代。T08 注释用「kit-free」「import kit」避开了 `@kit.`。
+- **`build` 与 GA 惯例**：digits 仅 !=6、period 仅 TOTP 且 !=30 时输出（省略默认值），algorithm 始终输出，HOTP 的 counter 始终输出（规范必填）——T10/T11 若断言 build 输出请对齐该惯例。
+- **parse 缺省归一化**：TOTP 结果恒带 `period`（默认 30）、HOTP 恒带 `counter`（默认 0）；round-trip 语义等价断言须把「缺省=默认值」归一化后比较（本任务 `assertParamsEqual` 模式可复用）。
+
+## W4 完成（main agent 追加，2026-10-02 09:42:00）
+
+- **T08 `72d0e92`**（Secret + OTPAuthURI）：隔离副本 `Failure: 0, Pass: 176`（secretTest 10 / otpAuthUriTest 20 / otpErrorTest 4）；破坏实验两处 red 点均命中（去掉 digits 校验 → 1 红；删掉 `toJSON()` → 1 红）。
+  - 已闭环 T03 交接项：`Secret.generate(byteLength)` → **`generate(bytes)`**（与设计 §3.2 形参名一致）。
+  - `Secret` 无 `toString()`（仅注释说明），`bytes` getter 与 `fromBytes` 均为拷贝语义；`OTPAuthURI` query 手写拆分，未用 `URLSearchParams`。
+- **T09 `fbd7e84`**（引擎 + 向量 + fixture）：隔离副本 `Failure: 0, Pass: 145`，`otpEngineTest` 61 条；编排方 node 独立复算 **112 项 0 不一致**。
+- **共享知识（供 T10 及后续复用）**：
+  - `HmacFixture` 表键 = `<algorithm>:<8 字节大端 counter hex>`，装表来源 = `RfcVectors` 的 A.2/A.3/A.4/A.6；**A.6 SHA256/counter=0（`SHA256_C0_DIGEST`）已落表** → T10 的 `period=60` fromURI 用例（counter=0）不会查表未命中。
+  - `SEEDS.SHA1_BASE32`（`GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ`）/`SHA256_BASE32`/`SHA512_BASE32` 可直接用于 T10/T11 走公开 API 的向量用例（A.1 规范形，已用真实 base32 解码器复核逐字节相等）。
+  - 公开类必须接受第二参 `provider?: HmacProvider`（`@internal 仅测试注入`）——T10 的全部用例都靠注入 `HmacFixture`，**不能**依赖默认 provider（分支 B 下本地 crypto 返回空数据）。

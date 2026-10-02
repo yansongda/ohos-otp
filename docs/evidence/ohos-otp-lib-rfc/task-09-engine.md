@@ -156,3 +156,31 @@ cp library/src/test/HmacFixture.ets /tmp/hmacfixture-t09.bak
 - **QA ① 首次执行时的 sed 事故**：`s/& 0x0f/& 0x0e/` 中 `&` 被 sed 展开为匹配文本，把行改写为 `& 0x0f 0x0e` 导致编译错误而非测试红点；已用备份还原并用 `s/0x0f/0x0e/` 重做，得到真实红点（Failure 26）。属自证过程，非实现缺陷。
 - **T08 并发**：构建/单测期间 git status 出现 T08 的 in-progress 文件（Secret/OTPAuthURI/RandomFixture 等），未触碰、未提交；以「无编译错误 + otpEngineTest Failure: 0」为准。
 - **构建三件套**：按共享流程备份→迁移 modelVersion→持 hvigor 锁→还原；`oh-package.json5` 还原后 git 洁净；未改动任何工程配置。
+
+# 2026-10-02 09:15:40
+
+## 编排方（main agent）亲自验证（隔离副本 + node 独立复算全量向量）
+
+**① 隔离副本单测**（`git archive fbd7e84` + `oh_modules` → `/tmp/v-t09`，持 hvigor 锁冷缓存实跑）：
+```
+EXIT=0
+Tests run: 145, Failure: 0, Error: 0, Pass: 145, Ignore: 0
+（otpEngineTest 失败项：无）
+```
+| Acceptance | 命令 | 实测 |
+|---|---|---|
+| 1. `otpEngineTest` 全绿、用例 ≥45 | `test … -p testType=local` | 61 条全 Success，`Failure: 0` ✓ |
+| 2. 用例数 | `grep -c "it(" library/src/test/OtpEngine.test.ets` | **61** ≥45 ✓（含 RFC4226 10 / RFC6238 18 / 边界 18 / 7 位 3 / verify 11 / fixture 未命中 1） |
+| 3. 反自证 | `grep -rn "@kit\|cryptoFramework" OtpEngine.test.ets HmacFixture.ets vectors/RfcVectors.ets` | 无输出 ✓ |
+| 4. 无占位 | `grep -c "NOT_IMPLEMENTED" internal/OtpEngine.ets` | `0` ✓ |
+| 5. 无重复取模 | `grep -n "%" internal/OtpEngine.ets` | **无任何 `%`**（取模仅存在于 `Digits.format` 内）✓ |
+
+**② 编排方独立复算（最强验证，非采信 worker 脚本）**：用 `node` 的 `crypto.createHmac` + 手写动态截断，对 `RfcVectors.ets` 里**每一个数值**重新计算并逐项比对 → **112 项检查，0 项真实不一致**：
+- A.2 10 条（digest + code6，2×10=20 项）
+- A.3 三算法 ×6 时间点（counter 推导、counterHex、digest、code8，4×18=72 项）
+- A.4 3 counter ×3 算法（counterHex、digest、code6、code8，4×9=36 项）
+- A.6 digits7 3 条（digest + code7）、A.5 9 条 hex、A.6 SHA256 counter=0（digest + code8）
+- 另有 2 项「不一致」经复核是**我自己的检查脚本假设错误**（误以为 base32 位数=字节×8，实际无填充 base32 为 `ceil(bits/5)` 位）→ 已用真实 base32 解码器复核：SHA1/SHA256/SHA512 三算法 **A.1 base32 规范形解码后与 ASCII seed 逐字节相等**（20B/32B/64B，3/3 通过）。
+> 结论：向量表既与**计划附录 A**一致（worker 机器比对），也与 **node 独立复算**一致（编排方），且 SHA256 counter=0 的 A.6 digest 已落表并装入 fixture（T10 的 `period=60` 用例不会因查表未命中而误红）。
+
+**③ 内容级审查**：`OtpEngine.generate` = `formatDigits(truncateApply(provider.sign(alg, key, toBytes(counter))), digits)`，**取模只在 `Digits.format` 内一次**；`verify` 用 `firstMatch` 记录首个命中并**继续扫完全部候选**（无提前 return），`candidate < 0 || !isSafeCounter(candidate)` 才 `continue`；token 校验用逐字符 `charCodeAt` 判断（不依赖正则）；`HmacFixture.sign` 查表未命中 `throw new Error('HmacFixture 未命中: …')`（**未返回零值数组**），并有专门用例 `fixture_miss_throws` 锁定该行为；`buildRfcFixture` 覆盖 A.2/A.3/三算法 A.4/A.6 counter=0。

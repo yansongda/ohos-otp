@@ -389,7 +389,7 @@ Your next move: 执行计划。Full execution detail follows below.
 
 ### W4
 
-- [ ] 8. Secret 与 OTPAuth URI（规范化层）
+- [x] 8. Secret 与 OTPAuth URI（规范化层）
   **What to do**：
   1. `Secret.ets`（**禁止 import kit、禁止 import CryptoSource**）：
      - `static fromBase32(input: string): Secret` → `Base32.decode`；结果长度 0 抛 `EMPTY_SECRET`
@@ -427,7 +427,7 @@ Your next move: 执行计划。Full execution detail follows below.
   - Evidence: `docs/evidence/ohos-otp-lib-rfc/task-08-secret-uri.md`
   **Commit**: Y | `feat(otp): 实现 Secret 规范化/校验/生成/脱敏与 OTPAuth URI 解析生成`
 
-- [ ] 9. 编排引擎 + 黄金向量 fixture（RFC 全量向量主战场）
+- [x] 9. 编排引擎 + 黄金向量 fixture（RFC 全量向量主战场）
   **What to do**：
   1. `library/src/test/vectors/RfcVectors.ets`：把**附录 A 的全部表格**落为 ArkTS 常量：`RFC4226_SHA1_6DIGIT`（10 条 `{counter, digestHex, code}`）、`RFC6238_SHA1/SHA256/SHA512`（各 6 条 `{timeSec, counter, counterHex, digestHex, code8}`）、`BOUNDARY_COUNTERS`（3 条；每条**按算法各存一组**：`{counter, counterHex, sha1: {digest, code6, code8}, sha256: {digest, code6, code8}, sha512: {digest, code6, code8}}` —— A.4 每个 counter 有三算法各一组 6/8 位码，单一 `code6/code8` 字段装不下）、`DIGITS7_SHA1`（**3 条：counter 0/1/9，值见 A.6**）、`COUNTER_BYTES`（9 条 `{counter, hex}`）、`SEEDS`（三算法 ASCII 字节串 **+ A.1 的 base32 规范形**，供 T11 走公开 API 测 SHA256/512 用）、`SHA256_C0_8DIGIT = '18920136'`、**`SHA256_C0_DIGEST = 'c79f479abc3c567224e3f8c8e46b2631d5b3f319a06a1e472cbdbee3aa479848'`**（A.6 第 1 行的 digest；**必须落表并装入 fixture**：T10 的 fromURI 用例走 `period=60` → counter=0，若缺此条则 fixture 查表未命中、按自身规格必抛错，用例必红）。**逐字照抄附录 A，禁止改值、禁止补算**。
   2. `library/src/test/HmacFixture.ets`：`export class HmacFixture implements HmacProvider`，构造接收 `Map<string,string>`（键 `<algorithm>:<message hex>`，值 digest hex）；`sign()` 查表命中则 hex→`Uint8Array` 返回，**未命中必须抛错**（绝不允许返回零值数组，那会让用例假绿）；`export function buildRfcFixture(): HmacFixture` 把 `RfcVectors` 的 digest 全部装表（**注意 SHA1 counter=1 在 A.2 与 A.3 的 T=59 行各出现一次，digest 相同，`Map.set` 重复写入幂等无害** —— 不要为它写多余的合并逻辑）。
