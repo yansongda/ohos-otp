@@ -1,0 +1,159 @@
+# 2026-10-02 09:20:32
+
+## 1. 结论摘要
+
+- **设备端 ohosTest 未执行**（`hdc list targets` 绝对路径实测输出 `[Empty]`，当前无设备/模拟器）。
+- 本任务按「**待人工验证**」交付：测试源码（37 条用例）已就位并通过静态核对；**未在无设备时伪报通过**，未用 `expect(true)` 占位，未放宽断言。
+- 已完成的机器可验证项：验收 grep 两条全过（`expect(true)` 无输出、`it(` 计数 37 ≥ 20）；本地单测回归 `Tests run: 240, Failure: 0, Pass: 240`；`assembleHar` exit 0；`genOnDeviceTestHap` 的 `CompileArkTS`（main）通过（HAR 模块测试 HAP 打包在 `PackageHap` 因 `--resources-path is invalid` 失败——工程级限制，与测试代码无关）；CLI 侧确认**不存在**独立的 ohosTest ArkTS 编译任务（`assembleOhosTest`/`assembleTest`/`compileOhosTest` 均报 task not found），ohosTest 编译/运行只能经 DevEco IDE（需设备）。
+
+## 2. 设备探测（必须如实记录）
+
+命令（绝对路径，未加 PATH）：
+
+```bash
+/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc list targets
+```
+
+原始输出：
+
+```
+[Empty]
+```
+
+exit code = `0`（命令本身成功，但目标列表为空 → **无设备/模拟器**）。
+
+→ 结论：**设备端真实 crypto 验证未执行**。人工执行步骤见第 5 节。
+
+## 3. 用例清单（37 条，全部真实断言，无 mock/stub/占位）
+
+文件：`library/src/ohosTest/ets/test/CryptoAdapter.test.ets`（唯一被授权新增用例的文件；`List.test.ets` 已由 T03 注册本套件，本任务确认无需改动）。
+
+| # | 用例名 | 覆盖内容 | 向量来源 |
+|---|---|---|---|
+| 1 | `hmacSha1_counter1_digest` | `new CryptoFrameworkHmac().sign(SHA1, A.1 base32 解码 key, 8 字节大端 counter=1)` 的 digest | 附录 A.3 SHA1/T=59 行 digest `75a48a19…`（A.1 key） |
+| 2 | `hmacSha256_counter1_digest` | 同上，SHA256 | 附录 A.3 SHA256/T=59 行 digest `392514c9…` |
+| 3 | `hmacSha512_counter1_digest` | 同上，SHA512 | 附录 A.3 SHA512/T=59 行 digest `6f76f324…` |
+| 4–9 | `totpSha1_t{59,1111111109,1111111111,1234567890,2000000000,20000000000}_code8` | `new TOTP({secret: SHA1 base32, digits:8, algorithm:SHA1}).generate(t×1000)` == 8 位码 | 附录 A.3 SHA1 列 6 条 |
+| 10–15 | `totpSha256_t*_code8` | 同上，SHA256（A.1 新增 base32 规范形，照抄常量 `SHA256_B32`） | 附录 A.3 SHA256 列 6 条 |
+| 16–21 | `totpSha512_t*_code8` | 同上，SHA512（照抄常量 `SHA512_B32`） | 附录 A.3 SHA512 列 6 条 |
+| 22–31 | `hotp_c0` … `hotp_c9` | `new HOTP({secret: SHA1 base32, digits:6}).generate(c)` == 6 位码 | 附录 A.2 RFC 4226 Appendix D 全 10 条 |
+| 32 | `secretGenerate20_byteLength` | `Secret.generate(20).byteLength === 20`（真实随机源） | todo What-to-do 第 4 项 |
+| 33 | `secretGenerate20_twiceDifferent` | 两次 `generate(20)` 逐字节不全等 | 同上 |
+| 34 | `secretGenerate20_base32RoundTrip` | `fromBase32(toBase32())` 逐字节还原 | 同上 |
+| 35 | `totp_80bitKey_JBSWY3DPEHPK3PXP_generates` | 80 bit 真实密钥（RFC 4648 示例 `Hello!\xDE\xAD\xBE\xEF` 的 base32）经默认 provider 出码，6 位纯数字 | todo What-to-do 第 5 项 |
+| 36 | `hotp_80bitKey_JBSWY3DPEHPK3PXP_generates` | 同上，HOTP 形态 | 同上 |
+| 37 | `barrel_totp_defaultProvider_generates` | 经模块根 `../../../../Index.ets` 导入 `TOTP`（别名 `BarrelTOTP`），不注入 provider，`generate(59000)` == `94287082`，证明加载期 `installCryptoDefaults()` 生效 | 附录 A.3 SHA1/T=59（counter=1）；todo What-to-do 第 6 项 |
+
+计数与验收 grep（机器已执行）：
+
+```bash
+$ grep -n "expect(true)" library/src/ohosTest/ets/test/CryptoAdapter.test.ets
+（无输出，exit=1）
+$ grep -c "it(" library/src/ohosTest/ets/test/CryptoAdapter.test.ets
+37
+```
+
+- `expect(true)` → 无输出 ✓（T03 空壳的占位用例已被替换）
+- `it(` 字面行数 37 ≥ 20 ✓
+
+关键设计点（供人工执行时核对）：
+- 全部用例**不注入 provider**：barrel 导入在模块加载期执行 `installCryptoDefaults()`（注册真实 cryptoFramework 实现），其余深路径导入的公开类经同一注册表单例取用默认实现——因此「TOTP/HOTP/Secret 用例」与「barrel 用例」互相印证注册链路。
+- 三算法 seed 的 base32 规范形以文件顶部常量照抄（`SHA1_B32`/`SHA256_B32`/`SHA512_B32`），测试内不临时拼装。
+- digest 的 message 用 A.5 对照表 counter=1 的 8 字节大端字面量 `[0,0,0,0,0,0,0,1]`。
+- 期望值全部逐字照抄附录 A.1/A.2/A.3，未自行推导。
+
+## 4. 机器可执行验证的逐字命令与真实输出
+
+### 4.1 本地单测回归（证明 main/test 套件未被破坏）
+
+```bash
+export PATH="/Users/yansongda/.nvm/versions/node/v24.20.0/bin:$PATH"
+export DEVECO_SDK_HOME="/Applications/DevEco-Studio.app/Contents/sdk"
+HB=/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw
+# 持 /tmp/ohos-otp-hvigor.lock；临时 sed modelVersion 6.0.0→6.1.1（构建后还原）
+$HB --no-daemon -c modelVersion=6.1.1 test --mode module -p module=library@default -p testType=local
+```
+
+原始输出（尾部）：`> hvigor BUILD SUCCESSFUL in 2 s 339 ms`，exit=0。
+
+用例级结果（唯一可信判据，T02 教训：不可只看 exit code）：
+
+```
+Tests run: 240, Failure: 0, Error: 0, Pass: 240, Ignore: 0
+```
+
+### 4.2 assembleHar（main 编译验证）
+
+```bash
+$HB --no-daemon -c modelVersion=6.1.1 assembleHar --mode module -p module=library@default -p product=default -p buildMode=release
+```
+
+原始输出（尾部）：`> hvigor BUILD SUCCESSFUL in 2 s 168 ms`，exit=0；产物 `library/build/default/outputs/default/library.har`（30388 B）。
+
+### 4.3 ohosTest 相关 CLI 探测（结论：CLI 无法编译/运行 ohosTest）
+
+- `genOnDeviceTestHap --mode module -p module=library@default`：`CompileArkTS`（main 编译）`Finished ... after 1 s 87 ms` 通过；随后 `PackageHap` 失败：
+  ```
+  ERROR: Failed :library:default@PackageHap...
+  ERROR: Tools execution failed.
+  Ohos BundleTool [Error]: 10011001 Parse and check args invalid in hap mode.
+  Error Message: --resources-path is invalid.
+  ```
+  → HAR 模块的 ohosTest source set 无 resources 目录（T03 脚手架即此形态），测试 HAP 打包在工程级失败；**与测试代码无关**（属工程配置范畴，超出本任务文件边界，不处理、不改工程配置）。
+- 编译覆盖性自证实验：临时在 `CryptoAdapter.test.ets` 注入语法错误后重跑 `genOnDeviceTestHap`，`CompileArkTS` 仍 `UP-TO-DATE`（710ms 完成）→ **该任务的 CompileArkTS 只编译 main，不覆盖 ohosTest 源码**。注入已还原（`grep -c SYNTAX_ERROR_INJECTED` = 0）。
+- 任务名探测：`assembleOhosTest` / `assembleTest` / `compileOhosTest` 均 `Task [...] was not found in the project ohos-otp`（exit 1）。
+- `onDeviceTest --mode module -p module=library@default`：无设备时失败于 `Failed :library:default@GenerateDeviceCoverage...`（exit 255），符合预期。
+
+→ 结论：**本机 CLI 不存在可用的 ohosTest 编译/运行路径**；ohosTest 源码编译正确性无法在本机机器验证，由人工在 DevEco IDE（设备/模拟器）执行时首轮暴露。
+
+### 4.4 测试文件 import 路径与符号静态核对（全部通过）
+
+```
+OK  library/src/main/ets/OtpOptions.ets
+OK  library/src/main/ets/Secret.ets
+OK  library/src/main/ets/HOTP.ets
+OK  library/src/main/ets/TOTP.ets
+OK  library/src/main/ets/internal/CryptoSource.ets
+OK  library/Index.ets
+```
+
+符号核对：`OtpAlgorithm` enum（OtpOptions.ets L9）、`Secret.fromBase32/generate/byteLength/toBase32`（Secret.ets）、`CryptoFrameworkHmac.sign(algorithm, key: Uint8Array, message: Uint8Array): Uint8Array`（CryptoSource.ets L34-35）、`Index.ets L19 export { TOTP }`、`HOTP.generate(counter?)`（HOTP.ets）——均与测试调用形态一致。
+
+## 5. 设备端执行状态：**未执行** + 人工执行步骤
+
+**状态：待人工验证**（无设备，未执行设备测试，未伪报通过）。
+
+人工执行步骤（按 todo 第 3 项与 T02 记录）：
+
+1. 启动模拟器（DevEco Studio 自带 Device Manager）或连接真机（开启 USB 调试）；
+2. 确认设备可见：
+   ```bash
+   /Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc list targets
+   # 预期输出一行设备序列号（非 [Empty]）
+   ```
+3. 优先 CLI（若 hvigor 侧在设备就绪后可走通打包）：
+   ```bash
+   export PATH="/Users/yansongda/.nvm/versions/node/v24.20.0/bin:$PATH"
+   export DEVECO_SDK_HOME="/Applications/DevEco-Studio.app/Contents/sdk"
+   HB=/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw
+   # 临时 sed 根 oh-package.json5 modelVersion 6.0.0→6.1.1，构建后还原（构建四件套）
+   $HB --no-daemon -c modelVersion=6.1.1 onDeviceTest --mode module -p module=library@default -p testType=ohosTest
+   ```
+   注意：T11 实测 `genOnDeviceTestHap` 的 `PackageHap` 报 `--resources-path is invalid`（HAR 模块 ohosTest 缺 resources），若 onDeviceTest 在设备就绪后仍撞此错，请改走 DevEco IDE 路径；
+4. 或 DevEco IDE 路径（推荐）：DevEco Studio 打开工程 → 右键 `library/src/ohosTest` → `Run 'library_ohosTest'`（或 Run 配置选 ohosTest）→ 等待 `cryptoAdapterTest` 套件 37 条用例执行；
+5. 判据：`cryptoAdapterTest` 全绿且用例数 ≥ 20（实际 37）；把 IDE 测试日志摘要（用例名 + 结果）粘贴进本 evidence 追加一节（`# <执行时刻>`），并更新本任务状态为已完成；
+6. 若出现红点，优先核对：设备端默认 provider 是否生效（barrel 用例 `barrel_totp_defaultProvider_generates` 若红 → 注册链路问题）；`hmacSha256/512` 用例若红 → 见第 6 节 QA failure 场景。
+
+## 6. QA failure 场景状态：**待人工**（无设备不可执行）
+
+- 场景：临时把 `internal/CryptoSource.ets` 的 `toMacAlgName` 映射改成固定返回 `'SHA1'`，确认 SHA256/SHA512 设备用例变红，随后还原。
+- 本机状态：**未执行**（无设备）。分支 B 下本地单测对该缺陷不敏感（T07 已实测固定 `'SHA1'` 后本地 70/70 仍全绿，红点只能由设备用例承担）。
+- **预期红点（供人工验证时对照）**：`hmacSha256_counter1_digest`、`hmacSha512_counter1_digest` 及 12 条 `totpSha256_*`/`totpSha512_*` 变红（SHA1 系用例保持绿）。
+- 人工执行后在 evidence 追加实际红点清单，并确认已还原 `toMacAlgName`。
+
+## 7. 偏差
+
+1. **`List.test.ets` 未实际改写**：T03 已注册 `cryptoAdapterTest`（`import cryptoAdapterTest from './CryptoAdapter.test'` + testsuite 内调用），本任务确认注册就位、无需改动；`git status` 中该文件无改动。todo 授权边界不变。
+2. **barrel 字面路径可用，未触发机械性回退**：`../../../../Index.ets` 相对导入的静态路径核对通过（文件存在、`export { TOTP }` 在列）；因无设备/无 CLI 编译任务，其**编译期可用性**待人工在 DevEco 首轮执行时确认。若届时编译报错，按 todo 预授权回退为 `import { installCryptoDefaults, requireHmac } from '../../../main/ets/internal/CryptoSource'`（套件顶部显式调用 `installCryptoDefaults()`），并在 evidence 注明。
+3. **ohosTest 编译/运行路径受限（环境事实，非代码偏差）**：CLI 侧无 ohosTest 独立编译任务（已探测 3 个候选任务名均不存在）；`genOnDeviceTestHap` 的 CompileArkTS 只编 main 且打包阶段因 HAR 模块缺 resources 失败。此项不影响交付判定（无设备时本任务本就按「待人工验证」交付），但已如实记录，供编排方 F 审查与后续任务参考。
+4. **未改动任何工程配置/源码**：`oh-package.json5` 临时 sed 迁移已还原；`library/BuildProfile.ets` 已清理；`git status` 中本任务外文件（T12/T13 与编排方记账文件）保持不动。
