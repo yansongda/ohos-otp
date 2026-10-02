@@ -392,3 +392,25 @@ grep -E "^class=|^test=|^result=" library/.test/default/intermediates/test/cover
 - **最终验证发现并修复的真实缺陷**：`Secret.ets:45` 注释字面含 `CryptoSource` → 使 T03 的越界 grep 失效（F2 首轮未通过）。已派发 worker 修复（`150a856`，仅注释），复查清零 → F2 复评通过。**教训**：机械 grep 判据必须把「注释」也算进去；后续实现任务写中文注释时不要复述内部文件名。
 - **遗留待人工（用户项）**：① 设备/模拟器上跑 `cryptoAdapterTest`（37 用例，真实 crypto + barrel 链路）——注意本环境 **ohosTest 连编译都无法自动验证**（无 `ohosTest@CompileArkTS`，`genOnDeviceTestHap` 卡在 `PackageHap`）；② `entry` demo 设备端运行观察；③ DevEco Code Linter；④ `ohpm publish`（需账号/密钥，**本次未执行**，且同版本发布后不可覆盖）。
 - **本仓库最终状态**：`HEAD = 150a856` + 最终记账提交；工作区洁净；产物 `library/build/default/outputs/default/library.har`（30 651 字节，字节码 HAR，含四件套、无测试源码）。
+
+## 设备端验证完成（main agent 追加，��
+
+### 正确姿势：模拟器上如何真正跑通 ohosTest（含踩坑结论）
+1. **`onDeviceTest` 任务确实存在**（早前「无 ohosTest 编译任务」的结论只对 `genOnDeviceTestHap` 成立）：
+   ` --no-daemon -c modelVersion=6.1.1 onDeviceTest --mode module -p module=library@default -p testType=ohosTest`
+   其任务图含 `:library:ohosTest@OhosTestCompileArkTS`（**ohosTest 源码会真正编译**）与 `:library:ohosTest@PackageHap`（产出 `library/build/default/outputs/ohosTest/library-ohosTest-unsigned.hap`）。
+2. **唯一硬阻塞 = 签名**：工程 `app.signingConfigs` 为空 → `SignHap` 跳过 → `:library:default@GenerateDeviceCoverage` 报 `00507001`（找不到 `library-ohosTest-signed.hap`）。**改名/复制绕过无效**（`PackageHap` 会重建 outputs 目录，且校验的是 HAP 内是否真含签名材料）。
+   - 解除：DevEco → Project Structure → Signing Configs → *Automatically generate signature*（需 Huawei ID）；会写入 `build-profile.json5`，**需用户授权**。
+3. **模拟器不强制签名校验**：`hdc install -r <unsigned.hap>` **成功**（entry 与 ohosTest HAP 均可）。因此可用官方 runner 直接跑：
+   ```bash
+   $HDC install -r library/build/default/outputs/ohosTest/library-ohosTest-unsigned.hap
+   $HDC shell "aa test -b cn.yansongda.otp -m library_test -s unittest OpenHarmonyTestRunner -s timeout 120000"
+   # → OHOS_REPORT_RESULT: stream=Tests run: 37, Failure: 0, Error: 0, Pass: 37, Ignore: 0
+   ```
+   （`-m` 用**测试模块名 `library_test`**，不是 `library`；`-b` 用 `cn.yansongda.otp`。）
+4. **UI 级验证技巧（强烈推荐复用）**：`hdc shell "uitest dumpLayout -p /data/local/tmp/x.json"` + `hdc file recv` → 解析 `attributes.text` 即可读到屏幕上真实文本。配合 `hdc shell "date +%s"` 取设备时钟，用 node 独立计算的 TOTP 与之比对，可对「界面显示是否正确」给出**确定性**证据（本次 3 轮全部 MATCH）。
+
+### 结论更新
+- **分支 B 的缺口已闭合**：真实 `cryptoFramework`（三算法 digest）、18 条 RFC 6238 向量、10 条 RFC 4226 向量、`Secret.generate` 真实随机源、80 bit 密钥、**barrel 注册链路**全部在设备端通过（37/37）→ `CryptoSource` 的 `*Sync` 链路与 `installCryptoDefaults()` 在生产路径上**验证通过**。计划的「跨 source set 导入机械性回退」**未触发**。
+- **entry demo 端到端正确**：界面码与 node 独立计算逐次一致，倒计时/进度与设备时钟自洽。
+- **仍待人工**：DevEco Code Linter；`onDeviceTest` 包装命令（需先配好签名）；`ohpm publish`（需账号/密钥，未执行）。

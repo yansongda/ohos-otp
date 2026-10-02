@@ -108,3 +108,21 @@ $ hdc list targets
 - 6 次**破坏-变红**灵敏度实验（Base32 字母表 / Truncate 掩码 / TimeStep t0 / CryptoSource algName / TOTP 偏移符号 / 构造期校验）确认用例能抓住对应缺陷；
 - 向量表用 **node \`crypto.createHmac\` 独立复算 112 项**（含 counter 推导、digest、6/7/8 位码、counterToBytes）比对，零真实不一致；A.1 base32 seed 用独立解码器逐字节复核；
 - 最终验证又发现并修复了 1 处真实违规（\`Secret.ets\` 注释字面引用 \`CryptoSource\` 导致越界 grep 失效）→ commit \`150a856\`。
+
+---
+
+# F3 设备端补充验证（模拟器启动后由编排方补做）—— 2026-10-02 21:34:00
+
+原 F3 中「设备相关待人工」的 3 项，其中 2 项已完成，1 项仍待人工：
+
+| 原待人工项 | 现状 | 证据 |
+|---|---|---|
+| 设备端 `cryptoAdapterTest`（37 用例，真实 crypto + barrel 链路） | ✅ **已完成，37/37 全绿** | `task-11-device-crypto.md` 末尾「设备端真实执行」节：`hdc install` + `aa test -b cn.yansongda.otp -m library_test -s unittest OpenHarmonyTestRunner` → `Tests run: 37, Failure: 0, Error: 0, Pass: 37`（`AA_TEST_EXIT=0`） |
+| `entry` demo 设备端运行（码 30s 翻转/倒计时/进度条） | ✅ **已完成，界面级验证通过** | `task-13-entry-demo.md` 末尾节：`uitest dumpLayout` 5 次采样（码 `836277`→`279557` 跨窗口翻转、倒计时 6→22→10→3→2、进度 0.800/0.2667 与倒计时自洽），并用 **node 独立计算 TOTP 与界面码逐次比对 MATCH** |
+| DevEco Code Linter | ⏳ 仍待人工（CLI 无入口） | 人工步骤见 F3 正文 |
+
+**新增环境限制（如实记录）**：计划的官方 CLI 包装命令 `hvigorw onDeviceTest` 在本机**无法 exit 0**——它在 `:library:ohosTest@PackageHap`/`SignHap` 之后卡在 `:library:default@GenerateDeviceCoverage`（`ErrorCode: 00507001`：找不到 `library-ohosTest-signed.hap`），根因是工程 `app.signingConfigs` 为空导致 `SignHap` 被跳过（实测 HAP 内无任何签名材料，改名绕过会被 `PackageHap` 重建清除 → 属**内容校验**）。
+- **不影响 T11 的验收实质**：同一测试 HAP 已由官方 JsUnit runner（`OpenHarmonyTestRunner`）在**真实设备**上跑完 37/37。
+- **解除方式（用户项）**：DevEco → File > Project Structure > Signing Configs → *Automatically generate signature*（需 Huawei ID 登录）；配置后 `hvigorw onDeviceTest` 即可完整跑通（含设备端覆盖率采集）。**该操作会写入 `build-profile.json5` 的 `signingConfigs`，属需用户授权的工程配置变更，编排方未擅自添加。**
+
+**同时纠正一条早前结论**：T11 evidence 首轮曾记录「本环境下 ohosTest 源码连编译都无法验证」。设备端推进时实测 **`onDeviceTest` 任务存在**，其任务图包含 `:library:ohosTest@OhosTestCompileArkTS`（编译通过）与 `:library:ohosTest@PackageHap`（打包通过）→ **ohosTest 源码可编译**这一结论成立；此前失败的是 `genOnDeviceTestHap`（在 `:library:default@PackageHap` 因 `--resources-path is invalid` 更早失败），两条路径不同。该纠正已同步至 learning。

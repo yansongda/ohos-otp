@@ -193,3 +193,52 @@ $HB … tasks --mode module -p module=library@default   # → 只列出 help/syn
 2. 右键 `library/src/ohosTest/ets/test/CryptoAdapter.test.ets` → **Run 'cryptoAdapterTest'**（CLI 无 ohosTest 编译/运行任务，只能经 IDE）；
 3. 期望：37/37 全绿；若报跨 source set 导入错误 → 按上面「机械性回退」替换 barrel 导入后重跑；
 4. 期望结果原文见本 evidence §1；**若任何一条 digest/码不符，说明真实 crypto 路径有缺陷，需回到 T07 修复**（这正是本任务存在的意义）。
+
+# 2026-10-02 21:33:50
+
+## 设备端真实执行（模拟器已启动，编排方亲自完成）—— **37/37 全绿**
+
+**设备**：HarmonyOS 模拟器 `emulator / 6.1.0.126(SP1DEVC00E120R4P11)`，`hdc list targets` → `127.0.0.1:5555`（exit 0）。
+
+**发现：`onDeviceTest` 任务存在，且**ohosTest 源码可编译**（此前「无法编译」的结论被推翻）：
+```
+$HB --no-daemon -c modelVersion=6.1.1 onDeviceTest --mode module -p module=library@default -p testType=ohosTest
+… :library:ohosTest@OhosTestCompileArkTS... after 1 s 456 ms     ← 37 条测试源码编译通过
+… :library:ohosTest@PackageHap...        after 277 ms            ← 测试 HAP 打包成功
+… WARN: Will skip sign 'hos_hap'. No signingConfigs profile is configured in current project.
+… ERROR: Failed :library:default@GenerateDeviceCoverage
+  ErrorCode: 00507001  The path …/outputs/ohosTest/library-ohosTest-signed.hap does not exist. Check whether the hap/hsp package is signed.
+  → ONDEVICE_EXIT=255
+```
+→ 阻塞点**仅是签名**（工程 `app.signingConfigs` 为空 → `SignHap` 跳过 → 覆盖率任务找不到签名 HAP）。实测该 HAP 内**无任何签名材料**（`unzip` 无 `signature*`/`META-INF`），把未签名文件改名为 `-signed` 也会被 `PackageHap` 重建清除，**属内容校验而非路径校验**，CLI 侧无法绕过。解除方式（需人工）：DevEco → File > Project Structure > Signing Configs → **Automatically generate signature**（需 Huawei ID 登录），之后 `onDeviceTest` 即可跑通。
+
+**编排方改用官方 JsUnit 运行路径实跑（同一 HAP、同一 runner、真实设备）**：
+```bash
+$HDC install -r library/build/default/outputs/ohosTest/library-ohosTest-unsigned.hap
+# → [Info]App install path:… msg:install bundle successfully. （模拟器不强制签名校验）
+
+$HDC shell "aa test -b cn.yansongda.otp -m library_test -s unittest OpenHarmonyTestRunner -s timeout 120000"
+```
+**原始结果（尾部原文）**：
+```
+OHOS_REPORT_STATUS: class=cryptoAdapterTest
+OHOS_REPORT_STATUS: current=37
+OHOS_REPORT_STATUS: test=barrel_totp_defaultProvider_generates
+OHOS_REPORT_STATUS_CODE: 0
+OHOS_REPORT_STATUS: suiteconsuming=13
+OHOS_REPORT_RESULT: stream=Tests run: 37, Failure: 0, Error: 0, Pass: 37, Ignore: 0
+OHOS_REPORT_CODE: 0
+TestFinished-ResultCode: 0
+TestFinished-ResultMsg: your test finished!!!
+AA_TEST_EXIT=0
+```
+
+### 该结果覆盖的内容（分支 B 缺口就此闭合）
+1. **真实 `cryptoFramework` HMAC**：三算法 counter=1 的 digest 与附录 A 逐字一致（SHA1 `75a48a19…` / SHA256 `392514c9…` / SHA512 `6f76f324…`）→ `CryptoSource` 的 `*Sync` 链路在真实系统上**正确**。
+2. **RFC 6238 三算法 × 6 时间点 = 18 条** 8 位码全部通过（走公开 `TOTP`，默认 provider）。
+3. **RFC 4226 Appendix D 全 10 条** 6 位码通过（走公开 `HOTP`）。
+4. **`Secret.generate(20)` 真实随机源**：长度、两次不同、base32 round-trip 通过。
+5. **80 bit（10 字节）真实密钥可正常出码** → 证伪「密钥长度必须等于摘要长度」，`'HMAC'` 通用规格选择正确。
+6. **barrel 注册链路**（`import { TOTP } from '../../../../Index.ets'` → 加载期 `installCryptoDefaults()`）：`new TOTP({secret: SHA1_B32, digits:8}).generate(59000) === '94287082'` 通过 → **跨 source set 相对路径导入在设备端可用**，计划的「机械性回退」**未触发**。
+
+→ **T11 的验收目标（设备端真实 crypto + 18+10 向量 + barrel 链路）已达成**；唯一未跑通的是 hvigor 的 `onDeviceTest` **包装命令**（签名前置条件缺失），已如实记录并给出解除步骤。

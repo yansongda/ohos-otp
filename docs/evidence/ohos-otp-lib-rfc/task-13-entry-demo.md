@@ -165,3 +165,40 @@ BUILD_EXIT=0
 **构建签名**：根 `build-profile.json5` 的 `app.signingConfigs` 为空但 `products[].signingConfig: "default"` → 实测**未导致失败**（hvigor 产出 unsigned HAP，`SignHap` 任务 1 ms 通过），**因此未触发 T13 唯一授权的 `signingConfig` 行移除**，该行保持原样（`git diff build-profile.json5` 为空）。
 
 **待人工验证（如实记录，未伪报）**：设备/模拟器端运行（码每 30s 翻转、倒计时 30→1、进度条同步、按钮校准 delta）**未执行**（`hdc list targets` → `[Empty]`）。人工步骤：DevEco Studio 打开工程 → 启动模拟器/连接真机 → Run `entry` → 观察上述行为；或 CLI `hdc` 安装 `entry/build/default/outputs/default/entry-default-unsigned.hap`（需签名后安装）。
+
+# 2026-10-02 21:33:50
+
+## 设备端真实运行（模拟器，编排方亲自完成）—— 界面级验证通过
+
+```bash
+$HDC install -r entry/build/default/outputs/default/entry-default-unsigned.hap
+# → msg:install bundle successfully.
+$HDC shell "aa start -a EntryAbility -b cn.yansongda.otp"
+# → start ability successfully.
+$HDC shell "ps -ef | grep yansongda"   # → cn.yansongda.otp 进程存活（无崩溃，faultlog 中无本应用的记录）
+```
+
+**界面级证据（`hdc shell uitest dumpLayout` 抓 UI 层级，共 5 次采样）**：
+
+| 采样 | 设备时钟(状态栏) | 界面 6 位码 | 倒计时文本 | 进度值 |
+|---|---|---|---|---|
+| #1 | 09:32 | `836277` | 剩余 6 秒 | 0.800000 |
+| #2 | 09:33 | `279557` | 剩余 22 秒 | 0.266667 |
+| #3 | — | `279557` | 剩余 10 秒 | — |
+| #4 | — | `279557` | 剩余 3 秒 | — |
+| #5 | — | `279557` | 剩余 2 秒 | — |
+
+- **码随窗口翻转**：#1 → #2 跨越了 30s 窗口边界，码由 `836277` 变为 `279557`，且倒计时由 6 秒回绕到 22 秒 ✓
+- **进度与倒计时自洽**：`0.800 × 30 = 24 秒已过 → 剩余 6`；`0.2667 × 30 = 8 秒已过 → 剩余 22` ✓
+- **倒计时公式自洽**：设备 epoch `1790948007` → `30 - (1790948007 % 30) = 3`，界面显示「剩余 3 秒」✓
+
+**确定性交叉验证（最强证据）**：以设备时钟为输入，用 **node + `crypto.createHmac` 独立计算** `TOTP(secret=JBSWY3DPEHPK3PXP, counter=floor(epoch/30), SHA1, 6 位)`，与界面显示逐次比对：
+```
+round 1: 设备 epoch 1790948007 | UI: 279557 / 剩余 3 秒 | node 计算 c=279557  → MATCH c
+round 2: 设备 epoch 1790948008 | UI: 279557 / 剩余 2 秒 | node 计算 c=279557  → MATCH c
+round 3: 设备 epoch 1790948009 | UI: 279557 / 剩余 2 秒 | node 计算 c=279557  → MATCH c
+（round 1 另附对照：c-1=836277（即采样#1 的旧码）、c+1=605180，均不等于当前显示 → 非巧合）
+```
+→ **入口 demo 的完整链路（barrel → 库 → 真实 cryptoFramework → 界面显示）在真机/模拟器上端到端正确**，码值与独立实现逐次一致。
+
+未覆盖/待人工：**「校验并校准」按钮**需人工点击（`uitest uiInput click` 可自动化但会改变 `clockOffsetMs` 状态，未在交付验证中执行）；UI 目视美观度不属验证范围。
