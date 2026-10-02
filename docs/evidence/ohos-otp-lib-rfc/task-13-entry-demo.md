@@ -144,3 +144,24 @@ BUILD_EXIT=0
 - **`entry/oh-package-lock.json5` 随本任务提交**：ohpm 依赖同步的机械性产物（todo 授权「lock 若变化则一并提交并注明」；实际变化发生在 entry/ 而非根，按同一精神处理）。
 - `library/oh-package-lock.json5`（ohpm 扫描副产物）与 `docs/**`（T10 evidence / T11-T12 在改的计划与 learning）**未纳入**本任务提交。
 - 无设备，UI 运行时行为与 failure 分支 UI 展示均为「静态验证 + 待人工验证」，未伪报。
+
+# 2026-10-02 11:40:10
+
+## 编排方（main agent）亲自验证（隔离副本 commit `6abc751` 实跑 entry 构建）
+
+**方法**：`rsync` 工作树到 `/tmp/v-t13`（保留 `oh_modules` 与 `entry/oh_modules/@yansongda/otp → ../../../library` 符号链接，排除 `.git`/各模块 `build`/`.hvigor`）+ `git archive 6abc751` 覆盖为 T13 提交状态，持 hvigor 锁实跑 entry 构建。
+
+| Acceptance | 命令 | 实测 |
+|---|---|---|
+| 1. 依赖声明 | `grep -c "@yansongda/otp" entry/oh-package.json5` | `1` ✓（`"file:../library"`） |
+| 2. demo 使用 API | `grep -c "TOTP" …/Index.ets` = `6`；`grep -c "clearInterval" …` = `1`；`grep -c "syncClockOffset\|verify" …` = `4` | ✓（定时器在 `aboutToDisappear` 中清理；按钮走 `verify(code,{window:1})` → 命中则 `syncClockOffset(delta)`） |
+| 3. entry 构建 exit 0 | `assembleHap --mode module -p module=entry@default -p product=default` | `ENTRY_BUILD_EXIT=0`、`BUILD SUCCESSFUL in 2 s 225 ms`、日志 `ERROR` 计数 **0**、产物 `entry-default-unsigned.hap`（221 367 B）✓ |
+| 4. 无反向依赖 | `grep -rn "entry" library/oh-package.json5` | 无输出 ✓ |
+
+**内容级审查**：`Index.ets` 单文件、无额外组件；`import { TOTP, OtpError } from '@yansongda/otp'` 走 barrel（零配置，自动 `installCryptoDefaults()`）；固定示例 secret `JBSWY3DPEHPK3PXP`（文档公开值）；`@State` 驱动 code/remaining/progress/deltaText/errorText；`setInterval` 1s + `aboutToDisappear` 中 `clearInterval`；两处 `try/catch` 均按 `OtpError.code` 分支展示，不崩溃；样式沿用 `$r('app.float.page_text_font_size')`。
+
+**依赖同步结果（worker 报告 + 编排方核对）**：`ohpm install --all` exit 0 → `entry/oh_modules/@yansongda/otp` 符号链接出现（指向 `../../../library`，已核对相对路径正确）；新增并已提交 `entry/oh-package-lock.json5`（`@yansongda/otp@../library` `registryType: local`，35 行）。
+
+**构建签名**：根 `build-profile.json5` 的 `app.signingConfigs` 为空但 `products[].signingConfig: "default"` → 实测**未导致失败**（hvigor 产出 unsigned HAP，`SignHap` 任务 1 ms 通过），**因此未触发 T13 唯一授权的 `signingConfig` 行移除**，该行保持原样（`git diff build-profile.json5` 为空）。
+
+**待人工验证（如实记录，未伪报）**：设备/模拟器端运行（码每 30s 翻转、倒计时 30→1、进度条同步、按钮校准 delta）**未执行**（`hdc list targets` → `[Empty]`）。人工步骤：DevEco Studio 打开工程 → 启动模拟器/连接真机 → Run `entry` → 观察上述行为；或 CLI `hdc` 安装 `entry/build/default/outputs/default/entry-default-unsigned.hap`（需签名后安装）。

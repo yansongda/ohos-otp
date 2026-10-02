@@ -204,3 +204,26 @@ $ grep -c "6.0.0(20)" library/README.md
 ## 六、偏差
 
 无设计性偏差。机械性说明：README 快速开始示例中刻意不给 `hotpCode` 标注码值断言（`JBSWY3DPEHPK3PXP` 是 80 bit 示例密钥，counter=0 的码并非 RFC 4226 附录 D 的 `755224`——后者对应 20 字节 ASCII seed 的 base32 `GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ`；为避免误导，示例只展示调用形态不展示码值），已在 §五 核对中确认无错误断言。
+
+# 2026-10-02 11:52:30
+
+## 编排方（main agent）亲自验证（commit `0ecde3e`）
+
+| Acceptance | 命令 | 实测 |
+|---|---|---|
+| 1. 四件套非空 | `test -s …` ×4 | 通过（README 180 行 / README-cn 180 行 / CHANGELOG 19 行 / LICENSE 21 行）✓ |
+| 2. 安装命令 | `grep -c "ohpm install @yansongda/otp" library/README.md` | **2** ≥1 ✓ |
+| 3. 版本/兼容性 | `grep -c "1.0.0" CHANGELOG.md` = 1；`grep -c "6.0.0(20)" README.md` = 1 | ✓ |
+| 4. API 名可 grep 到导出 | 逐名 `grep -rq "export .*$n" library/src/main/ets/ library/Index.ets` | **无 MISSING** ✓ |
+| 5. 章节数 | `grep -cE "^## \|^### " README.md` | **13** ≥6 ✓ |
+| 6. 16 个对外错误码齐全 | 逐码 grep | **无 MISSING**（`NOT_IMPLEMENTED` 按计划不列入）✓ |
+
+**内容级审查（逐条对照冻结 API 与设计文档）**：
+- 示例代码与冻结签名一致：`new TOTP({secret})`、`generate()/remaining()/progress()`、`verify(code,{window:1}) → delta → syncClockOffset(delta)`、`toURI()/TOTP.fromURI(uri)`、`new HOTP({secret,counter:0})`、`hotp.verify(code,{window:5})`、`Secret.fromBase32/fromBytes/generate/toBase32/bitLength`、`try/catch` + `e instanceof OtpError` + `e.code` —— 与 `library/src/main/ets/*.ets` 逐一核对**无出入**。
+- 选项默认值表与设计 §3.2 完全一致（`algorithm=SHA1`/`digits=6`/`minSecretBits=0`/`period=30`/`t0=0`/`clockOffsetMs=0`/`counter=0`/`window=0`，`window` 处明确写「strict」）。
+- RFC 符合性章节覆盖 §4 R6、§5.3、§4.2、§5.2、§6、§1.2，并**明确写出「RFC 4226 §7.3 throttling 由校验服务端负责，本库不提供」**。
+- **诚实性检查（关键）**：`Testing status` 章节如实写明「分支 B：PC 上 Local Test 无法执行真实系统 crypto…真实 crypto 路径与 barrel 注册链路由 `ohosTest` 覆盖，**As of this release it is pending manual verification on a device**」，并声明「No coverage figures are claimed for paths not exercised by the local suite」——**未伪报设备端通过、未宣称未经证实的覆盖率** ✓
+- 已知限制齐全：counter ≤ 2^53-1（含量化）、`otpauth://` 为 GA 事实标准（IANA Provisional #13829）、未知 query 参数忽略、`toJSON()` 只是安全网而非可随意打日志、not-provided 清单（Steam/SHA224/384/SM3/BigInt/throttling/二维码）。
+- 安全章节明确「**不使用 `@security/no-unsafe-mac` 豁免**」并给出 RFC 6238 §1.2 依据（F4 的 grep 范围排除 `library/*.md` 正因此处需要出现该字样）。
+- 发布前检查清单 6 项可勾选，含「同版本发布后不可覆盖」。
+- `library/oh-package.json5` 13 项字段核对通过（`author` 为对象、`dependencies: {}`、`devDependencies` 仅 hypium/hamock）；**未添加** `types`/`obfuscated`/`sourceType`（与 T02「字节码 HAR，类型声明由构建自动生成」结论一致）。

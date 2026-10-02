@@ -295,3 +295,70 @@ grep -E "^class=|^test=|^result=" library/.test/default/intermediates/test/cover
   - `HmacFixture` 表键 = `<algorithm>:<8 字节大端 counter hex>`，装表来源 = `RfcVectors` 的 A.2/A.3/A.4/A.6；**A.6 SHA256/counter=0（`SHA256_C0_DIGEST`）已落表** → T10 的 `period=60` fromURI 用例（counter=0）不会查表未命中。
   - `SEEDS.SHA1_BASE32`（`GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ`）/`SHA256_BASE32`/`SHA512_BASE32` 可直接用于 T10/T11 走公开 API 的向量用例（A.1 规范形，已用真实 base32 解码器复核逐字节相等）。
   - 公开类必须接受第二参 `provider?: HmacProvider`（`@internal 仅测试注入`）——T10 的全部用例都靠注入 `HmacFixture`，**不能**依赖默认 provider（分支 B 下本地 crypto 返回空数据）。
+
+## T10 公开类 HOTP/TOTP + 时钟偏移（worker 追加，2026-10-02 09:11:16）
+
+- **TOTP 走公开类跑三算法向量时必须显式传 `algorithm`**：`new TOTP({secret: SHA256_BASE32, digits:8})` 的 algorithm 默认 SHA1，会拿 SHA1 fixture 出码（t20000000000 出 65353130 而非 47863826）。初版漏传导致 6 SHA256 + 6 SHA512 全红，补 `algorithm: OtpAlgorithm.SHA256/SHA512` 后全绿。与 T09 用 EngineParams 显式带 algorithm 同因。
+- **`fromURI(uri)` 无 provider 参数，走默认 `requireHmac()`**：本地测试要让 fromURI 产物可算出码，需在套件顶部 `registerHmac(fixture)`（深路径 import `internal/HmacProvider`）注册 fixture 为默认 provider。注意 `registerHmac` 是模块级单例、跨套件持久——本仓库无套件依赖「requireHmac 未注册抛错」，注册安全；若未来加 `resetForTest()` 依赖的用例需留意顺序。
+- **QA 灵敏度实证（T10 完成）**：① `syncClockOffset` 的 `-=` 改 `+=` → 3 条红（scenarioA/scenarioB/verify_appliesClockOffset）；② 去掉构造期 digits 校验 → HOTP/TOTP 各 1 条 `ctor_digits5_throws` 红。说明「双场景 + 构造期抛错」用例能真实抓住这两类回归。
+- **`syncClockOffset` 语义确认**：`delta` 非整数 → `INVALID_WINDOW`（单参数，无 options）；`clockOffsetMs -= delta * period * 1000`。场景 A：delta=+1 → offset=-30000 → generate(89000) 有效 59000 → c1；场景 B：delta=-1 → offset=+30000 → generate(59000) 有效 89000 → c2。所有时间入口（含显式 timestamp）都叠加 offset。
+- **hypium `expect(fn).assertTrue()` 恒失败**（断言的是函数对象 === true）——「不抛错」用例不能这么写，应真实构造后对产物断言（如 `new HOTP({...}).generate() === '755224'`）。
+- **TOTP 构造期校验清单**（与 HOTP 共用 digits/minSecretBits，另加）：period 正整数→INVALID_PERIOD、t0 ≥0 整数→INVALID_T0、clockOffsetMs 有限数→INVALID_TIMESTAMP。
+- **验收 grep 计数语义再次确认**：`grep -c "it("` 是字面行数（Hotp 22 / Totp 44），注释与 `it(` 同行的 `it(` 也算；用例名里含 `syncClockOffset` 会推高 grep 计数（10 ≥ 2 阈值）。
+
+## T10 公开类完成 → API 冻结（main agent 追加，2026-10-02 11:07:00）
+
+- **commit `df5d524`**，隔离副本 `Failure: 0, Pass: 240`（hotpTest 22 / totpTest 44）。
+- **API 已冻结**（T12 的 README/示例必须与之一致）：
+  - `new HOTP(options: HotpOptions, provider?: HmacProvider)` / `new TOTP(options: TotpOptions, provider?: HmacProvider)`；`provider` 为 `@internal 仅供测试注入`，缺省走 `requireHmac()`。
+  - `HOTP.generate(counter?)` / `HOTP.verify(token, options?)` / `HOTP.toURI()` / `HOTP.fromURI(uri)`。
+  - `TOTP.generate(timestampMs?)` / `verify(token, options?)` / `remaining(ts?)` / `progress(ts?)` / `syncClockOffset(delta)` / `get clockOffsetMs` / `toURI()` / `TOTP.fromURI(uri)`。
+  - `fromURI` **不接受 provider 参数**；本地测试要覆盖 `fromURI` 需先 `registerHmac(fixture)`（注册表契约允许），设备端则由 barrel/`installCryptoDefaults()` 提供默认实现。
+- **已验证的推导结论（后续任务可直接引用）**：`syncClockOffset(+1)` → `clockOffsetMs = -30000` → `generate(89000)` 有效 59000 → counter 1；`syncClockOffset(-1)` → `+30000` → `generate(59000)` 有效 89000 → counter 2；`t0=1, period=30, ts=31000` → counter 1；`period=60, ts=59000` → counter 0（SHA256 c0 = `18920136`）。
+- 破坏-变红实测：`-=`→`+=` 触发 3 红；去掉构造期 digits 校验触发 2 红 → 用例灵敏度达标。
+
+## T13 消费方 smoke demo（worker 追加，2026-10-02 09:16:46）
+
+- **`ohpm install --all` 对 `file:../library` 依赖的解析**：在**模块目录**下生成符号链接 `entry/oh_modules/@yansongda/otp -> ../../../library`（`entry/oh_modules` 被 `**/oh_modules` 忽略），并生成**模块级** `entry/oh-package-lock.json5`（`registryType: "local"`、`resolved: "../library"`）；根 `oh-package-lock.json5` 不变。副产物：`library/oh-package-lock.json5`（扫描 library devDependencies 生成）——**非任务文件，别提交**，留待编排方 bookkeeping。
+- **entry `assembleHap` 在「products 有 `"signingConfig": "default"` 但 `app.signingConfigs` 为空数组」时不报错**：`SignHap` 仅 WARN `Will skip sign 'hos_hap'. No signingConfigs profile is configured` 后继续，构建照常 `BUILD SUCCESSFUL`，产物为 `*-unsigned.hap`。→ **T13 授权的 signingConfig 行移除未触发**，`build-profile.json5` 保持原样。此结论修正了「空 signingConfigs + 有引用行必然报签名错误」的预判。
+- **`file:../library` 本地依赖构建有两条无害 WARN**：① `Missing module info for local modules '@yansongda/otp'`（本地依赖无远程元信息）；② `'page_text_font_size' conflict`（library 模板残留的 float.json 与 entry 同名资源，HAR 库本不该有 UI 资源，归属 T03/T12 处理，T13 不动）。均不影响构建结果。
+- **消费方 UI 编译要点**：`import { TOTP, OtpError } from '@yansongda/otp'` 在 entry 侧编译/运行链路成立（barrel 自动 `installCryptoDefaults()`，消费者零配置）；`setInterval`/`clearInterval` 在 ArkUI 组件可直接用（`private timerId: number = -1` + `aboutToDisappear` 清理）；`Progress({ value: progress, total: 1 })` 直接吃 `progress()` 的 [0,1) 返回值；`catch (e) { const err = e as OtpError; err.code }` 分支展示可用。
+- **QA failure 场景（`'AB1'`）无设备时的验证法**：临时改 secret 后重新构建——编译期不报错（抛错在运行期构造），构建 SUCCESSFUL 即证明 try/catch 路径编译成立；运行期推导链路引用 T04 已锁定的 `decodeIllegalChar_AB1` 行为（`'1'` 不在字母表 → `Base32.decode` 抛 `INVALID_BASE32_CHAR` → TOTP 构造器透传 → demo catch 展示）。必须注明「静态检查 + 待人工验证」，不得伪报运行时行为。
+
+## T12 发布物料（worker 追加，2026-10-02 09:19:00）
+
+- **字节码 HAR 定论已闭环**：`assembleHar` 产物包内自动生成 `types: "Index.d.ets"`（`byteCodeHar: true`），`library/oh-package.json5` **不手工加 `types`**（T02 结论，T12 再次确认）。
+- **README 验收 grep 的 `\b` 单词边界陷阱**：AC4 用 `grep -oE '\b(OtpError|...)\b'` 提取 README 中的 API 名——`OtpErrorCode` 文本不会让 `\bOtpError\b` 命中（`r` 与 `C` 之间无边界），所以 README 里 `OtpError` 必须作为独立单词出现（表格中写类名即可）；同理 `OtpType`/`OtpAlgorithm`/`TOTP`（后跟 `(`/`.`/空格均算边界）。写 README 时留意类名与枚举名分开出现。
+- **16 个对外错误码表 = 17 枚举 − `NOT_IMPLEMENTED`**：故障排查表只列 16 个，`NOT_IMPLEMENTED` 在表前说明中提及「已从交付产物清零」即可，不能进表。
+- **快速开始示例的码值陷阱**：`JBSWY3DPEHPK3PXP`（80 bit / 10 字节）的 counter=0 码**不是** `755224`——`755224` 属于 20 字节 ASCII seed `12345678901234567890`（base32 `GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ`）。README 示例若标注码值必须用后者；前者只展示调用形态。
+- **`syncClockOffset`/`verify`/`remaining` 等签名与默认值已在 T12 与冻结源码逐条核对**（evidence §三 18 项对照表）：`verify` 默认 `window:0` 严格、示例须显式 `{window:1}`；`remaining` 取值 `[1,period]`、`progress` 取值 `[0,1)`；`fromURI` 无 provider 参数。
+- **发布前检查清单第 2 条「README 含 ohpm install」的失效检测已实测**：删行后 `grep -c` 从 2 → 0，清单条目可发现（QA failure 场景）。
+- **README 中写「不使用 @security/no-unsafe-mac 豁免」不会触发 F4**：F4 的 `grep -rn "no-unsafe-mac" library/src/ library/Index.ets` 范围明确排除 `library/*.md`。
+
+## T12/T13 完成（main agent 追加，2026-10-02 11:54:00）
+
+- **T12 `0ecde3e`**：README（英/中 各 180 行）+ CHANGELOG（`## 1.0.0 - 2026-10-01`）+ LICENSE 定稿；6 条 Acceptance 全过（安装命令、16 个对外错误码、API 名可 grep 到导出、13 个章节）。**诚实性要点已核对**：README 明写分支 B 的可测性缺口与「设备端待人工验证」，未宣称覆盖率。
+- **T13 `6abc751`**：`entry` 走 barrel 消费 `@yansongda/otp`（`file:../library`），编排方在隔离副本实跑 `assembleHap -p module=entry@default` → **exit 0 / BUILD SUCCESSFUL / 零 ERROR**，产出 `entry-default-unsigned.hap`（221 KB）。**空 `signingConfigs` 未导致构建失败** → 未触发 T13 唯一授权的 `signingConfig` 行移除，`build-profile.json5` 零改动。
+- **`ohpm install --all` 的副产物**：在 `entry/oh-package-lock.json5`（已随 T13 入库）之外还生成了 `library/oh-package-lock.json5`（library 有 devDependencies 时 ohpm 为每个模块生成 lock）。约定：**与 entry 保持一致，入库**（否则 F1 的「零新增未跟踪项」不成立）。后续任何 `ohpm install` 都会重建它，不要删。
+- **消费方事实**：`entry/oh_modules/@yansongda/otp` 是指向 `../../../library` 的**相对符号链接**；`entry/oh-package-lock.json5` 里 `@yansongda/otp@../library` 为 `registryType: local`。复制工程做隔离验证时需保留该符号链接（`rsync -a` 默认保留）。
+
+## T11 设备端真实 crypto 验证（worker 追加，2026-10-02 09:20:32）
+
+- **CLI 侧不存在 ohosTest 的独立 ArkTS 编译任务（已探测）**：`assembleOhosTest`/`assembleTest`/`compileOhosTest` 均报 `Task [...] was not found in the project ohos-otp`；`genOnDeviceTestHap` 任务树里的 `CompileArkTS` **只编译 main**（注入语法错误到 `src/ohosTest` 后该任务仍 `UP-TO-DATE`，注入已还原）。ohosTest 编译/运行只能经 DevEco IDE（需设备/模拟器），CLI 无法预验证 ohosTest 源码编译。
+- **`genOnDeviceTestHap` 对 HAR 模块打包失败**：`PackageHap` 报 `Ohos BundleTool [Error]: 10011001 ... --resources-path is invalid`——HAR 模块的 ohosTest source set 只有 `ets/test` + `module.json5`、无 resources 目录（T03 脚手架即此形态），属工程级限制（改工程配置超出 T11 边界，未处理）。设备就绪后若 `onDeviceTest` 仍撞此错，人工路径应改走 DevEco IDE Run ohosTest。
+- **无设备交付形态（供 F 审查对照）**：测试源码 37 条 `it(` 全真实断言（digest 3 + TOTP 18 + HOTP 10 + Secret.generate 3 + 80bit 密钥 2 + barrel 1），`expect(true)` 零残留；验收 grep 两条已过；本地回归 `Tests run: 240, Failure: 0`；`assembleHar` exit 0。**设备端未执行**，evidence 明确写了「待人工验证 + 人工步骤 + QA failure 预期红点清单」。
+- **ohosTest 中「默认 provider」的结构性实现**：barrel（`../../../../Index.ets` 相对导入，T11 静态核对路径与 `export { TOTP }` 均在）在模块加载期执行 `installCryptoDefaults()` → 注册表单例对深路径导入的公开类同样生效，所以「TOTP/HOTP/Secret 用例」与「barrel 用例」互相印证注册链路，无需在测试里显式调注册函数。若 DevEco 首轮编译报 barrel 跨 source set 导入错误，回退路径已预授权（`../../../main/ets/internal/CryptoSource` 的 `installCryptoDefaults` + `requireHmac` 断言）。
+- **digest 用例的 key/message 构造**：key 用 `Secret.fromBase32(<A.1 base32 规范形>).bytes`（纯 base32 解码、kit-free，且 A.1 规范形已复核与 ASCII seed 逐字节相等）；message 用 A.5 对照表 counter=1 的 8 字节大端字面量 `[0,0,0,0,0,0,0,1]`——都不算「临时拼」。
+- **TOTP 用例照抄 T10 教训**：走公开类跑三算法向量必须显式传 `algorithm`（默认 SHA1），否则 SHA256/512 用例必然红。
+
+## T11 交付状态与双重限制（main agent 追加，2026-10-02 12:12:00）
+
+- **T11 commit `1d9ea2d`**：`CryptoAdapter.test.ets` 37 条真实断言（3 digest + 18 TOTP + 10 HOTP + 3 `Secret.generate` + 2 个 80 bit 密钥 + 1 barrel 链路），无 `expect(true)` 占位。
+- **限制 1（计划已预见）**：无设备 → `hdc list targets` = `[Empty]`，设备端**未执行**，按「待人工验证」交付，**未伪报**。
+- **限制 2（编排方补充发现，必须继承）**：本环境下 ohosTest 源码**连编译都无法验证**——
+  - `ohosTest@CompileArkTS` → task not found（EXIT=1）；
+  - `genOnDeviceTestHap` → EXIT=255，任务图在 `:library:default@CompileArkTS`（**main 目标**）之后于 `:library:default@PackageHap` 失败（工程级 `--resources-path is invalid`），**早于 ohosTest 源码编译**；
+  - `tasks` 列表里没有 ohosTest 编译任务。
+  → 因此 ohosTest 的编译/运行**只能经 DevEco IDE + 设备**；任何 ohosTest 源码改动都属于「静态核对 + 待人工」级别，不可宣称已验证。
+- **人工验证步骤（交付给用户）**：DevEco 打开工程 → 启动模拟器/连真机 → 右键 `library/src/ohosTest/ets/test/CryptoAdapter.test.ets` → Run `cryptoAdapterTest` → 期望 37/37 绿；若报跨 source set 导入错误，**机械性回退**：把 `import { TOTP as BarrelTOTP } from '../../../../Index.ets'` 换成 `import { installCryptoDefaults, requireHmac } from '../../../main/ets/internal/CryptoSource'` 并在用例内调用注册后断言 `requireHmac()` 可用。
+- **`library/oh-package-lock.json5`**：由 `ohpm install --all` 生成（library 有 devDependencies 时 ohpm 会为模块生成 lock），已入库以保持与 `entry/oh-package-lock.json5` 一致，并满足 F1「零新增未跟踪项」。

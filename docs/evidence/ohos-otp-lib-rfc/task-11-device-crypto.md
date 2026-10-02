@@ -157,3 +157,39 @@ OK  library/Index.ets
 2. **barrel 字面路径可用，未触发机械性回退**：`../../../../Index.ets` 相对导入的静态路径核对通过（文件存在、`export { TOTP }` 在列）；因无设备/无 CLI 编译任务，其**编译期可用性**待人工在 DevEco 首轮执行时确认。若届时编译报错，按 todo 预授权回退为 `import { installCryptoDefaults, requireHmac } from '../../../main/ets/internal/CryptoSource'`（套件顶部显式调用 `installCryptoDefaults()`），并在 evidence 注明。
 3. **ohosTest 编译/运行路径受限（环境事实，非代码偏差）**：CLI 侧无 ohosTest 独立编译任务（已探测 3 个候选任务名均不存在）；`genOnDeviceTestHap` 的 CompileArkTS 只编 main 且打包阶段因 HAR 模块缺 resources 失败。此项不影响交付判定（无设备时本任务本就按「待人工验证」交付），但已如实记录，供编排方 F 审查与后续任务参考。
 4. **未改动任何工程配置/源码**：`oh-package.json5` 临时 sed 迁移已还原；`library/BuildProfile.ets` 已清理；`git status` 中本任务外文件（T12/T13 与编排方记账文件）保持不动。
+
+# 2026-10-02 12:10:40
+
+## 编排方（main agent）亲自验证（commit `1d9ea2d`；**含一条必须如实记录的额外限制**）
+
+**① 设备探测（编排方独立复跑）**：
+```bash
+/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc list targets
+# → [Empty]
+```
+→ **设备端 ohosTest 未执行**（与 worker 结论一致）。本任务按计划允许的「无设备」分支交付：evidence 记录「未执行 + 人工步骤」，**未伪报通过**。
+
+**② 静态 Acceptance**：
+| 项 | 命令 | 实测 |
+|---|---|---|
+| `expect(true)` 占位清零 | `grep -n "expect(true)" CryptoAdapter.test.ets` | 无输出 ✓ |
+| 用例数 | `grep -c "it(" CryptoAdapter.test.ets` | **37** ≥20 ✓ |
+| 用例如实为真实断言 | 逐条审阅 | 37 条全为真实断言：3 条 digest（`75a48a19…`/`392514c9…`/`6f76f324…`）+ 18 条 TOTP（A.3 三算法 ×6 时间点）+ 10 条 HOTP（A.2 全量）+ 3 条 `Secret.generate(20)` + 2 条 80 bit 密钥 + 1 条 barrel 链路（`94287082`）✓ |
+| 向量照抄 | `grep -oE "assertEqual\('[0-9a-f]{40,128}'\)"` | SHA1/SHA256 digest 逐字照抄附录 A；29 条两位数码断言 ✓ |
+| 导入路径可解析 | 逐一 `test -f` | `../../../main/ets/{OtpOptions,Secret,HOTP,TOTP,internal/CryptoSource}.ets` 与 `../../../../Index.ets` 均存在；`export enum OtpAlgorithm`/`export class Secret|HOTP|TOTP`/`export class CryptoFrameworkHmac`/`export { TOTP }` 均存在 ✓ |
+
+**③ ⚠️ 编排方补充发现（比 worker 记录更强的一条限制，必须如实披露）**：我在隔离副本里独立尝试了三条 CLI 路径，确认**本环境下 ohosTest 源码连「编译」都无法验证**：
+```bash
+$HB … ohosTest@CompileArkTS --mode module -p module=library@default -p product=default   # → EXIT=1，task not found
+$HB … genOnDeviceTestHap  --mode module -p module=library@default -p product=default      # → EXIT=255
+#   任务图：… :library:default@CompileArkTS ✔（**main 目标**）→ :library:default@PackageHap ✗
+#   （ERROR: Tools execution failed，工程级 `--resources-path is invalid`，**早于 ohosTest 源码编译**）
+$HB … tasks --mode module -p module=library@default   # → 只列出 help/sync 任务，无 ohosTest 编译任务
+```
+→ 结论：`CryptoAdapter.test.ets` 的**编译等价性未在任何本机路径上被验证**（这是「无设备」之外的**第二重限制**）。缓解措施：源码已按冻结 API + 相对路径逐一静态核对（见上表），且计划已预设**机械性回退**——若设备端 Run 时报跨 source set 导入错误，改为 `import { installCryptoDefaults, requireHmac } from '../../../main/ets/internal/CryptoSource'` 并断言 `requireHmac()` 可用（见 evidence §5 人工步骤）。
+
+**④ 待人工执行步骤（交付给用户的精确操作）**：
+1. DevEco Studio 打开 `/Users/yansongda/000-Coding/ohos-otp` → 启动模拟器（或连真机，`hdc list targets` 应非空）；
+2. 右键 `library/src/ohosTest/ets/test/CryptoAdapter.test.ets` → **Run 'cryptoAdapterTest'**（CLI 无 ohosTest 编译/运行任务，只能经 IDE）；
+3. 期望：37/37 全绿；若报跨 source set 导入错误 → 按上面「机械性回退」替换 barrel 导入后重跑；
+4. 期望结果原文见本 evidence §1；**若任何一条 digest/码不符，说明真实 crypto 路径有缺陷，需回到 T07 修复**（这正是本任务存在的意义）。

@@ -93,3 +93,30 @@ test=ctor_digits5_throws        result=Failure   # totpTest
 3. **`syncClockOffset` 非整数 → `INVALID_WINDOW`**：todo 要求写进 evidence——已实现并有用例 `syncClockOffset_nonInteger_throws`（delta=1.5 → INVALID_WINDOW）。
 4. **toURI 逐字断言**：HOTP `otpauth://hotp/?secret=…&algorithm=SHA1&counter=0`（digits 默认 6 省略、HOTP 恒输出 counter）；TOTP `otpauth://totp/?secret=…&algorithm=SHA1&digits=8`（period 默认 30 省略）——与 T08 build 惯例一致。
 5. **QA ② 的演示口径**：构造期校验有 5 类（digits/period/t0/clockOffset/minSecretBits），本次演示移除 digits 校验即让两套件的 `ctor_digits5_throws` 红（足以证明「构造期抛错用例」的灵敏度）；其余校验类用例同构，未逐一破坏。
+
+# 2026-10-02 11:05:30
+
+## 编排方（main agent）亲自验证（隔离副本 commit `df5d524` + 两处破坏-变红）
+
+**方法**：`git archive df5d524` + `oh_modules` → `/tmp/v-t10`，持 hvigor 锁冷缓存实跑（判据 = `test_result.txt` 的 `Failure` 计数）。
+
+| Acceptance | 命令 | 实测 |
+|---|---|---|
+| 1. 两套件全绿 | `test … -p testType=local` | `Tests run: 240, Failure: 0, Error: 0, Pass: 240`（`hotpTest` 22、`totpTest` 44 全 Success）✓ |
+| 2. 用例数 | `grep -c "it("` | Hotp **22** ≥15 ✓；Totp **44** ≥30 ✓ |
+| 3. 无 kit/CryptoSource | `grep -rn "@kit\.\|CryptoSource" HOTP.ets TOTP.ets` | 无输出 ✓ |
+| 4. 无占位 | `grep -c "NOT_IMPLEMENTED"` | `0 / 0` ✓ |
+| 5. `syncClockOffset` 双场景 | `grep -c "syncClockOffset" Totp.test.ets` | **10** ≥2 ✓ |
+
+**内容级审查（逐条对照设计 §3.2）**：
+- `TOTP`：构造期同步校验 `digits`（`isValidDigits`→`INVALID_DIGITS`）、`period` 正整数（→`INVALID_PERIOD`）、`t0` ≥0 整数（→`INVALID_T0`）、`clockOffsetMs` 有限数（→`INVALID_TIMESTAMP`）、`minSecretBits>0 && bitLength<minSecretBits`（→`SECRET_TOO_WEAK`）；字段全部 `readonly`，`_clockOffsetMs` 可变；`effectiveTs()` 统一 `(timestampMs ?? Date.now()) + _clockOffsetMs` —— **`generate`/`remaining`/`progress`/`verify` 四条时间入口全部叠加偏移**（`verify` 内显式写了 `baseTs + _clockOffsetMs`）✓。
+- **`syncClockOffset(delta)` 符号正确**：`this._clockOffsetMs -= delta * period * 1000`（与设计 §3.2 双场景表一致：delta=+1 → −30000）。非整数 → `INVALID_WINDOW` ✓。
+- `HOTP`：`counter` 经 `Counter.isSafeCounter` 校验（→`INVALID_COUNTER`）；`generate/verify` 缺省用构造 counter；`window` 缺省 0 ✓。
+- `toURI()` 均走 `OTPAuthURI.build`（TOTP 带 period、HOTP 带 counter）；`fromURI` 类型不匹配抛 `UNSUPPORTED_OTPAUTH_TYPE` ✓；两文件零 kit 依赖、无缓存 provider 结果/码、未改 `Index.ets`。
+
+**编排方独立破坏实验**：
+1. `syncClockOffset` 的 `-=` 改 `+=` → `Failure: 3`（双场景 + verify 偏移用例变红）✓ —— 证明该用例能抓住历史上的符号错误。
+2. 去掉 `HOTP`/`TOTP` 构造期 `digits` 校验 → `Failure: 2`（`ctor_digits5_throws` 类用例变红）✓ —— 证明「构造期即抛错」被真实锁定。
+   两处均随后还原并复跑至 `Failure: 0`（240/240）✓
+
+**接受 worker 的偏差处理**：`fromURI(uri)` 签名不含 `provider`（设计 §3.2 即如此），本地用例通过 `registerHmac(fixture)` 走注册表兜底——**符合注册表契约**；分支 B 下默认 provider 的真实 crypto 链路由 T11 设备用例覆盖（本任务不伪报）。

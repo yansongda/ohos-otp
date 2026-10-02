@@ -467,7 +467,7 @@ Your next move: 执行计划。Full execution detail follows below.
 
 ### W5
 
-- [ ] 10. 公开类（HOTP / TOTP，含时钟偏移）
+- [x] 10. 公开类（HOTP / TOTP，含时钟偏移）
   **What to do**：
   1. `HOTP.ets`（**禁止 import kit / CryptoSource**）：`class HOTP { constructor(options: HotpOptions, provider?: HmacProvider); generate(counter?: number): string; verify(token: string, options?: VerifyOptions): number | null; toURI(): string; static fromURI(uri: string): HOTP; }`
      - 构造期校验并缓存：`secret` 经 `Secret.fromBase32`；`algorithm` 默认 `SHA1`；`digits` 默认 `6`（`Digits.isValidDigits` 否则 `INVALID_DIGITS`）；`counter` 默认 `0`（`Counter.isSafeCounter` 否则 `INVALID_COUNTER`）；`minSecretBits > 0` 且 `bitLength < minSecretBits` → `SECRET_TOO_WEAK`
@@ -519,7 +519,7 @@ Your next move: 执行计划。Full execution detail follows below.
 
 ### W6
 
-- [ ] 11. 设备端真实 crypto 验证（ohosTest）
+- [x] 11. 设备端真实 crypto 验证（ohosTest）
   **What to do**：
   1. `library/src/ohosTest/ets/test/CryptoAdapter.test.ets`：**用默认 provider（不注入 fixture）** 跑：
      - `new CryptoFrameworkHmac().sign` 三算法 counter=1 的 digest 与附录 A 一致（SHA1 `75a48a19…`、SHA256 `392514c9…`、SHA512 `6f76f324…`）
@@ -550,7 +550,7 @@ Your next move: 执行计划。Full execution detail follows below.
   - Evidence: `docs/evidence/ohos-otp-lib-rfc/task-11-device-crypto.md`
   **Commit**: Y | `test(otp): 增加设备端真实 cryptoFramework 的 RFC 向量验证`
 
-- [ ] 12. 发布物料（README / CHANGELOG / LICENSE / 包元信息）
+- [x] 12. 发布物料（README / CHANGELOG / LICENSE / 包元信息）
   **What to do**：
   1. `library/oh-package.json5`：核对并最终定稿（T03 已写入）：`name`/`version`/`description`(6–512)/`main`/`author`(**对象**)/`license`(MIT)/`repository`/`keywords`/`dependencies`(空)/`devDependencies`。**不得**添加 `types`/`obfuscated`/`sourceType` 等，除非 T02 判定为字节码 HAR。
   2. `library/README.md`（英文）+ `library/README-cn.md`（中文）必备内容：
@@ -588,7 +588,7 @@ Your next move: 执行计划。Full execution detail follows below.
   - Evidence: `docs/evidence/ohos-otp-lib-rfc/task-12-release-assets.md`
   **Commit**: Y | `docs(otp): 补齐 README/CHANGELOG/LICENSE 与 HAR 包元信息`
 
-- [ ] 13. 消费方 smoke demo（entry 依赖 library）
+- [x] 13. 消费方 smoke demo（entry 依赖 library）
   **What to do**：
   1. `entry/oh-package.json5`：`dependencies` 加 `"@yansongda/otp": "file:../library"`；跑一次依赖安装/同步（按 T02 记录的 CLI 或 DevEco sync），确认 `oh_modules/@yansongda/otp` 出现或 `oh-package-lock.json5` 更新。
   2. `entry/src/main/ets/pages/Index.ets`：替换模板为**极简算码 demo**（单文件、无额外组件）：
