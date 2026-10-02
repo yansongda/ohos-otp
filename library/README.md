@@ -168,12 +168,13 @@ All failures throw `OtpError` with a fixed `code` (string). Messages never conta
 
 ## Pre-release checklist
 
-- [ ] All four release files are non-empty: `oh-package.json5`, `README.md`, `CHANGELOG.md`, `LICENSE`
-- [ ] `README.md` contains the install command `ohpm install @yansongda/otp`
-- [ ] `CHANGELOG.md` contains the current version number
-- [ ] `dependencies` is empty (`{}`) — zero runtime dependencies
-- [ ] `ohpm prepublish <har>` passes locally
-- [ ] Remember: a published version cannot be overwritten or re-used — publish a new version instead
+- [x] All four release files are non-empty: `oh-package.json5`, `README.md`, `CHANGELOG.md`, `LICENSE` — verified present inside the HAR package (`package/README.md`, `package/README-cn.md`, `package/CHANGELOG.md`, `package/LICENSE`)
+- [x] `README.md` contains the install command `ohpm install @yansongda/otp`
+- [x] `CHANGELOG.md` contains the current version number (`## 1.0.0`)
+- [x] `dependencies` is empty (`{}`) — zero runtime dependencies
+- [x] `ohpm prepublish <har>` passes locally (exit 0; note: it validates archive format and `oh-package.json5` metadata, not the four-file set)
+- [x] Local test coverage: 90.1% lines / 88.4% branches / 87.3% functions (report at `library/.test/default/outputs/test/reports/`); `internal/CryptoSource.ets` and `HmacProvider.ets` real-crypto paths are covered by device-side `ohosTest` (not runnable on PC, branch B)
+- [ ] Publish gate (manual, needs OHPM account + key): `ohpm publish <har>` — a published version cannot be overwritten or re-used, publish a new version instead
 
 ## License
 
