@@ -123,3 +123,29 @@ hvigor ERROR: Error in format(137359152,8) === 37359152, expect 137359152 equals
 - `git status --short` 存在其他 worker 的文件（`TimeStep.ets`/`TimeStep.test.ets` 属 T06、`CryptoSource.ets`/`CryptoSource.test.ets` 属 T07），**保留不动**；本次只 add 本任务 6 个文件 + 本 evidence。
 - 构建期间根 `oh-package.json5` 一度被 git 标记 modified，实为 stat-cache 陈旧（MD5 与 HEAD 完全一致），`touch` 后洁净；未做任何工程配置改动。
 - 未执行任何 push / remote / reset 操作。
+
+# 2026-10-02 08:05:20
+
+## 编排方（main agent）亲自验证（隔离副本 + 破坏-变红复现）
+
+**验证方法**：不看 worker 的自述，直接把 **commit `07be70b` 的完整树**导出到 `/tmp/v-t05`（`git archive` + 复制 `oh_modules`，排除 `.git`/构建缓存），在隔离副本里冷缓存实跑单测：
+
+```bash
+$HB --no-daemon -c modelVersion=6.1.1 test --mode module -p module=library@default -p testType=local
+# → t05 TEST_EXIT=0
+# → 12 套件全在；Tests run: 70, Failure: 0, Error: 0, Pass: 70, Ignore: 0        （Acceptance 1 ✓）
+```
+
+| Acceptance | 命令 | 实测 |
+|---|---|---|
+| 1. 3 套件全绿 | 见上 | `counterTest`/`truncateTest`/`digitsTest` 全 Success，Failure: 0 ✓ |
+| 2. 无 `padStart` | `grep -rn "padStart" .../internal/Digits.ets` | 无输出 ✓ |
+| 3. 无 `NOT_IMPLEMENTED` | `grep -c "NOT_IMPLEMENTED" internal/{Counter,Truncate,Digits}.ets` | `0 / 0 / 0` ✓ |
+| 4. 用例数 | `grep -c "it("` | Counter **14** ≥12 ✓、Truncate **11** ≥11 ✓、Digits **10** ≥8 ✓ |
+
+**内容级审查**：`Counter.toBytes` 用 `Math.floor(counter/4294967296)` + `% 4294967296` 拆 high/low，逐字节 `>>>`/`& 0xff`（**未用 `<<` 拼 32 位**，符合历史坑要求）；`Truncate.apply` 只截断不取模、`digest.length < 20` 抛 `CRYPTO_FAILED`；`Digits.format` 手写补零、非法位数抛 `INVALID_DIGITS`；`Truncate.test` 10 条断言**逐字照抄附录 A.2 第 4 列**（含 digest→期望值对照，非自证）；`Counter.test` 覆盖 A.5 全部 9 行（含 `001fffffffffffff`＝2^53-1、`000000010000005f`＝4294967391）。
+
+**编排方独立破坏实验（验证用例灵敏度，非采信 worker 自述）**：把 `Truncate.apply` 的 `(digest[offset] & 0x7f)` 改成 `(digest[offset])` → 单测 `Tests run: 70, Failure: 4, Pass: 66`（**用例确实能抓住丢掩码**）；随后还原。
+> ⚠️ **重要发现**：hvigor `test` 任务的 **exit code 恒为 0**，即使有用例失败（破坏后 `EXIT=0` 而 `Failure: 4`）。**判定必须看 `test_result.txt` 的 `Tests run: … Failure: … Error: …` 行，不能只看 exit code**——已写入 learning，F3 最终验证同样遵守。
+
+**越界检查**：`git show --stat 07be70b` = 3 源码 + 3 测试 + 本 evidence，无越界文件；`padStart`/`NOT_IMPLEMENTED` 均清零。

@@ -266,7 +266,7 @@ Your next move: 执行计划。Full execution detail follows below.
 
 ### W3
 
-- [ ] 4. Base32 编解码（RFC 4648）
+- [x] 4. Base32 编解码（RFC 4648）
   **What to do**：
   1. `internal/Base32.ets`：字母表常量 `'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'`。
      - `decode(input: string): Uint8Array`：`replace(/\s/g,'')` → 去尾部 `=` → `toUpperCase()`；空串抛 `EMPTY_SECRET`；逐字符校验，非法字符抛 `INVALID_BASE32_CHAR`；`Math.floor(len*5/8)` 为 0 时抛 `SECRET_TOO_SHORT`；按 8 字符一组解码（沿用旧实现 `Totp.ets:15-76` 的位拼接公式：`buf[0]<<3|buf[1]>>2`、`buf[1]<<6|buf[2]<<1|buf[3]>>4`、`buf[3]<<4|buf[4]>>1`、`buf[4]<<7|buf[5]<<2|buf[6]>>3`、`buf[6]<<5|buf[7]`，每字节 `& 0xff`；不足 8 字符的末组按剩余有效位数截断输出）。输出 `Uint8Array`。
@@ -297,7 +297,7 @@ Your next move: 执行计划。Full execution detail follows below.
   - Evidence: `docs/evidence/ohos-otp-lib-rfc/task-04-base32.md`
   **Commit**: Y | `feat(otp): 实现 RFC 4648 base32 编解码`
 
-- [ ] 5. 整数原语（Counter / Truncate / Digits）
+- [x] 5. 整数原语（Counter / Truncate / Digits）
   **What to do**：
   1. `internal/Counter.ets`：`toBytes(counter)` —— 校验 `Number.isInteger(counter) && counter >= 0 && counter <= Number.MAX_SAFE_INTEGER`，否则抛 `INVALID_COUNTER`；`high = Math.floor(counter / 4294967296)`、`low = counter % 4294967296`；8 字节大端，**必须**用 `>>>` 与 `& 0xff` 取值（**严禁**用 `<<` 拼 32 位：ArkTS 位运算是 32 位有符号）。`isSafeCounter(value)` 返回同规则布尔。
   2. `internal/Truncate.ets`：`digest.length < 20` 抛 `CRYPTO_FAILED`（固定文案，不含 digest 内容）；`offset = digest[digest.length-1] & 0x0f`；`v = ((digest[offset] & 0x7f) << 24 | digest[offset+1] << 16 | digest[offset+2] << 8 | digest[offset+3]) >>> 0`；返回 `v`（**只做截断，不做取模**）。
@@ -323,7 +323,7 @@ Your next move: 执行计划。Full execution detail follows below.
   - Evidence: `docs/evidence/ohos-otp-lib-rfc/task-05-primitives.md`
   **Commit**: Y | `feat(otp): 实现计数器打包/动态截断/位数填充原语及向量单测`
 
-- [ ] 6. 时间步与恒定时间比较（TimeStep）
+- [x] 6. 时间步与恒定时间比较（TimeStep）
   **What to do**：
   1. `internal/TimeStep.ets`：
      - `step(epochMs, t0, period)`：校验 `epochMs` 为 >0 有限数（否则 `INVALID_TIMESTAMP`）、`t0` 为 ≥0 整数（否则 `INVALID_T0`）、`period` 为正整数（否则 `INVALID_PERIOD`）；返回 `Math.floor((Math.floor(epochMs/1000) - t0) / period)`。**`t0` 单位是秒。**
@@ -355,7 +355,7 @@ Your next move: 执行计划。Full execution detail follows below.
   - Evidence: `docs/evidence/ohos-otp-lib-rfc/task-06-timestep.md`
   **Commit**: Y | `feat(otp): 实现时间步/倒计时/进度与恒定时间比较`
 
-- [ ] 7. 加密适配器实现（kit-only `CryptoSource`）
+- [x] 7. 加密适配器实现（kit-only `CryptoSource`）
   **What to do**：
   1. **核对** T03 已完整实现的 `internal/HmacProvider.ets`：须含 `HmacProvider`/`RandomSource` 两个接口，`registerHmac`/`requireHmac`/`registerRandom`/`requireRandom` 四个函数，以及 `@internal resetForTest()`；`requireXxx()` 未注册时抛 `CRYPTO_NOT_INITIALIZED`。**本任务不得修改该文件**（所有权归 T03），如发现缺陷必须向编排方报告而不自行修正。
   2. `internal/CryptoSource.ets`（**全库唯一 `@kit` 导入点**）：

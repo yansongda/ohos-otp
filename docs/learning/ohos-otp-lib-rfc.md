@@ -171,3 +171,84 @@ rmdir "$GITLOCK"
 ### 交接项
 - `internal/CryptoSource.ets` 的 `installCryptoDefaults()` 目前是 NOT_IMPLEMENTED 占位，**归 T07 实现**（只 new + 注册，禁止发起 crypto 调用）。
 - `Secret.generate(byteLength = 20)` 形参名与设计 §3.2 的 `bytes` 不一致，**T08 需改回 `bytes`**。
+
+## T06 时间步与恒定时间比较（worker 追加，2026-10-02 08:40:00）
+
+- **W3 并发下 `/tmp/oh-package.json5.bak` 是共享文件**：4 个 worker 都用同一路径做「备份→迁移→还原」，任一 worker 的还原步骤都会把 oh-package.json5 覆写回 6.0.0，导致持锁方下一次构建报 00303027（本任务 QA 后重跑即因此失败过一次）。**处置：备份名用唯一路径（如 `/tmp/oh-package-t06.bak`），还原用自己的备份，勿依赖共享名。**
+- **`library/.test/default/intermediates/test/coverage_data/test_result.txt` 跨运行累积（追加而非覆盖）**：多次构建后文件含多轮结果，`Tests run:` 行是累积总数，单轮验收前先 `rm -f` 该文件再跑，否则容易误读。类计数中 `class=` 行与 `test=` 行数量可不等（部分类只有 result 行），以 `Tests run: N, Failure: 0` 与自己的套件用例行（`test=...` / `result=Success`）为准。
+- **hypium `assertClose(expected, precision)` 是相对误差**（`|expected-actual|/|actual| < precision`），actual=0 且 diff≠0 时恒失败；做「接近值」断言（如 `progress(1000,0,30) ≈ 1/30`）时可用它，但要写明容差理由。
+- **hypium `assertThrowError(string)` 匹配的是错误 message 的 includes**（非 code 字段）；OtpError 的固定文案即错误码字符串，`expect(() => fn()).assertThrowError('INVALID_TIMESTAMP')` 可直接锁定错误码。
+- **T06 QA 实证**：把 `remainingSec` 破坏成 `period - s % period` 后，`t0=0` 全部用例保持绿，仅 `t0≠0` 用例（`remainingSec(1000,5,30)` 与 `remainingSec(31000,1,30)`）变红——证实「无 t0≠0 专项用例时，实现丢掉 t0 也不会红」。
+- **concurrent worker 的文件**：W3 并行期间 `git status` 会看到其他 worker 的 in-progress 文件（Counter/Digits/Truncate/CryptoSource），提交时只 add 自己 3 个显式路径，其余保留不动。
+
+## T05 整数原语（worker 追加，2026-10-02 08:40:00）
+
+- **`assertThrowError(string)` 匹配的是 OtpError 的 message.includes**：OtpError 固定文案 == 错误码字符串（如 `'INVALID_COUNTER'`），所以 `expect(() => toBytes(-1)).assertThrowError(OtpErrorCode.INVALID_COUNTER)` 可直接锁定错误码（hypium `assertThrowError.js` 源码：`err.message.includes(expected[0])`）。
+- **注释里也不能出现验收 grep 目标词**：`Digits.ets` 首版注释写了「不依赖 padStart」，被 `grep -rn "padStart"` 命中（AC2 失败）。learning §T03 已提示过「验收 grep 纯字面匹配，注释也算」，T05 再次踩坑——注释措辞必须避开 `padStart`/`NOT_IMPLEMENTED`/`it(` 等字样。
+- **W3 并发实测**：08:36 首次单测时 T06 的 `timeStepTest` 有 2 条失败（`remainingSec31000_1_30`/`remainingSec1000_5_30`，其 worker 正在编辑），08:37 复跑已全绿。按「无编译错误 + 自己套件全绿」判定，不把他人 in-progress 失败当自己失败。
+- **git stat-cache 假阳性**：多次 `cp /tmp/oh-package.json5.bak oh-package.json5` 还原后，`git status` 显示 ` M oh-package.json5` 但 `git diff`/MD5 均与 HEAD 一致——是 stat 缓存 mtime 失配，`touch oh-package.json5` 即恢复洁净，无需 checkout。
+- **QA 红点实测值**（供后续 F 审查核对）：① `high` 改 `counter >> 32` → counterTest 7 条红（`toBytes(1)` expect 1 equals 0 等）；② 去掉 `& 0x7f` → truncateTest 4 条红（counter=0/1/3/9，均为 `digest[offset]>=0x80`，如 counter=0 `expect 3432238872 equals 1284755224`）；③ 取模换 `value` → digitsTest 1 条红（`format(137359152,8)` `expect 137359152 equals 37359152`）。
+
+## ⚠️ 验收判据修正：hvigor `test` 的 exit code 不可信（main agent 追加，2026-10-02 08:07:50）
+
+编排方在 T05/T06 的独立破坏实验中实测：**hvigorw `test` 任务即使有用例失败，exit code 仍为 `0`**（例：故意去掉 `Truncate` 的 `& 0x7f` → `EXIT=0` 但 `Tests run: 70, Failure: 4, Pass: 66`；故意丢掉 `remainingSec` 的 `t0` → `EXIT=0` 但 `Failure: 2`）。
+**因此所有「单测通过」的判定必须读用例级结果文件，而非 exit code**：
+
+```bash
+# 唯一可信判据（Failure 必须为 0）
+grep -E "^Tests run" library/.test/default/intermediates/test/coverage_data/test_result.txt
+grep -E "^class=|^test=|^result=" library/.test/default/intermediates/test/coverage_data/test_result.txt | grep -B2 "result=Failure"
+```
+
+- 后续任务（T08–T14）与 F3 最终验证一律按此判据执行；worker 若只贴 `BUILD SUCCESSFUL` 而未贴 `Tests run … Failure: 0`，视为**未完成验证**。
+- 隔离副本验证法（编排方已用它复核 T05/T06，强烈推荐给需要「确定性复跑」的场景）：
+  ```bash
+  rm -rf /tmp/v-<task> && mkdir -p /tmp/v-<task>
+  (cd <repo> && tar -cf - oh_modules | (cd /tmp/v-<task> && tar -xf -))     # 排除 .git 与构建缓存
+  (cd <repo> && git archive <commit> | tar -x -C /tmp/v-<task>)
+  sed -i '' 's/"modelVersion": "6.0.0"/"modelVersion": "6.1.1"/' /tmp/v-<task>/oh-package.json5
+  # 在副本内跑 hvigor（持 /tmp/ohos-otp-hvigor.lock）
+  ```
+  好处：不影响仓库、无并发干扰、可确定性复现指定 commit 的状态。
+- 破坏-变红实验（验证用例灵敏度）也建议在副本内做，避免污染仓库文件。
+
+## T07 加密适配器（worker 追加，2026-10-02 08:39:00）
+
+- **分支 B 下 QA②（临时改坏 algName 映射）本地观察不到红点**：把 `toMacAlgName` 改成固定 `return 'SHA1'` 后，本地单测仍 70/70 全绿——`cryptoSourceTest` 只有 1 条 importSmoke，不触发真实 crypto。这正是分支 B 语义：该缺陷红点只能由 T11 设备用例（ohosTest `CryptoAdapter.test.ets` 的 SHA256/SHA512 向量）承担。todo 要求「记录输出后还原」，分支 B 下不要期待本地变红。
+- **注释里 `HMAC|` 字面量会命中验收 grep**：初版注释写「严禁 'HMAC|SHA1' 之类规格」（继承历史坑措辞），被 `grep -n "HMAC|"` 命中。验收 grep 是纯字面匹配，注释措辞须避开——已改写为「管道符拼接算法名的组合规格（如 HMAC 管道符 SHA1）」。与 T03/T05 的「注释不能踩 grep 词」同一教训。
+- **`installCryptoDefaults()` 的静态锁定方式**：`awk '/function installCryptoDefaults/{f=1} f{print} f&&/^\}/{exit}' <file> | grep -c "cryptoFramework\."` 必须为 0——函数体内只能 `new` + `registerHmac/registerRandom`，连注释都不能出现 `cryptoFramework.`（本实现注释在函数体外，安全）。
+- **cryptoFramework 同步链路（本机 SDK 权威签名，T07 已编译验证）**：`createSymKeyGenerator('HMAC')` → `convertKeySync({data: Uint8Array})` → `createMac('SHA1'|'SHA256'|'SHA512')` → `initSync(symKey)` → `updateSync({data})` → `doFinalSync()` 返回 `DataBlob`（`.data` 为 `Uint8Array`）；随机源 `createRandom().generateRandomSync(bytes)`。`createRandom(): Random` 在 d.ts L1433。所有调用必须 try/catch → `OtpError(CRYPTO_FAILED, 'CRYPTO_FAILED')` 固定文案。
+- **W3 并发下「构建+单测」合并执行易超时**：首次把 assembleHar 与 test 串在同一 bash 命令里，单测执行期挂起被环境终止（report 显示卡在 UnitTestArkTS 之后的测试执行期）。分步执行（各自持锁）后 2s 级成功。后续 W3 任务建议构建与单测**分开两次持锁执行**，避免一次超时丢全部结果；被 kill 后记得 `rmdir /tmp/ohos-otp-hvigor.lock` 并检查 `oh-package.json5` 是否残留 6.1.1 迁移态（`cp /tmp/oh-package.json5.bak` 还原）。
+- **`grep -c` 统计的是行数**：`OtpErrorCode.CRYPTO_FAILED` 在 sign 与 random 各 1 行 → CryptoSource.ets 计数 2，加上 HmacProvider.ets 的 2 行 `CRYPTO_NOT_INITIALIZED` 合计 4 ≥ 2，Acceptance 通过。
+
+## T07 cryptoFramework 适配器落地（main agent 追加，2026-10-02 08:21:30）
+
+- **`*Sync` 链路在本地 SDK 上可编译**（`assembleHar` exit 0、零 ERROR）：`createSymKeyGenerator('HMAC')` → `convertKeySync({data})` → `createMac(algName)` → `initSync(symKey)` → `updateSync({data})` → `doFinalSync()`。运行期在 PC 上仍返回空 DataBlob（分支 B），**设备端正确性由 T11 覆盖**。
+- **密钥生成器必须用通用 `'HMAC'` 规格**（支持 1–4096 字节任意长度），不得用管道符组合规格（会拒绝 80 bit/10 字节的存量 secret）。
+- `installCryptoDefaults()` 已补全为「只 `new` + `register*`」，**注册期零 crypto 调用**（用 `awk` 取函数体 + `grep -c "cryptoFramework\."` = 0 做静态断言锁定；这是两个分支下唯一可观察的验证手段）。
+- `internal/HmacProvider.ets` 是 T03 的专属文件，T07 已确认未改动（`git show --stat <t07 commit> -- HmacProvider.ets` 为空）。
+- **T11 接手项**：设备端 `library/src/ohosTest/ets/test/CryptoAdapter.test.ets` 必须覆盖（a）三算法 counter=1 的 digest 对照附录 A；（b）`TOTP`/`HOTP` 公开类走**默认 provider**（不注入 fixture）出码；（c）barrel（`Index.ets`）注册链路可用；（d）`Secret.generate(20)` 真实随机源。当前**无设备**，T11 需按「未执行 + 人工步骤」如实记录（**严禁 expect(true) 占位伪报**）。
+
+## T04 Base32 编解码（worker 追加，2026-10-02 08:45:02）
+
+- **QA 破坏场景已实测并还原**：字母表索引 31 `7`→`0` 后，`base32Test` 唯一红点 = `decodeIllegalChar_ab0`（`'0'` 变合法不再抛错，`expectThrowsCode` 的 thrown 断言失败，报 `Error in decodeIllegalChar_ab0, expect true, actualValue is false`）；`decodeIllegalChar_AB1`（`'1'` 始终非法）与 A.1 seed round-trip 用例（只用到索引 ≤30 的字符）**均不变红**——与计划附录 7.2-3 的复算一致。还原后字母表恢复 `'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'`。
+- **hypium 1.0.25 的 `assertThrowError` 精度不足**：字符串期望只做 `err.message.includes()`，函数期望只比对 `constructor.name`；要断言**具体错误码**必须 try/catch 后取 `(e as OtpError).code` 用 `assertEqual` 精确匹配（本任务 `expectThrowsCode` 辅助函数模式，后续 T08/T10 等错误断言可复用）。
+- **hypium 用例失败不使 hvigor 构建失败**：QA 破坏场景下 hvigor 仍 `BUILD SUCCESSFUL`（exit 0），判定红点必须看 `test_result.txt` 的 `result=Failure` + 用例堆栈（`Error in <用例名>, ...` 行直接给出失败用例名），不能只看构建结果。
+- **ArkTS 位缓冲编码可行**：`buffer = (buffer << 8) | bytes[i]` + `(buffer >>> (bitsLeft-5)) & 31` 取 5 位组、末尾 `(buffer << (5-bitsLeft)) & 31` 补零，buffer 恒 ≤ 12 bit 无 32 位符号溢出问题；输出字符数天然 = `ceil(len*8/5)`，无需 `padStart`/二进制字符串。
+- **`encode` 空数组返回 `''`（不抛错）** 与 `decode` 空串抛 `EMPTY_SECRET` 的语义差是设计意图（encode 的语义由调用方决定），T08 `Secret.fromBytes`/`toBase32` 接手时注意别误改成抛错。
+
+## W3 全部完成（main agent 追加，2026-10-02 08:41:40）
+
+四个并行任务均由编排方在**隔离副本**（`git archive <commit>` + `oh_modules`，排除 `.git`/构建缓存）冷缓存复跑验收，并各做一次破坏-变红灵敏度实验：
+
+| 任务 | commit | 复跑结果 | 破坏-变红实验 |
+|---|---|---|---|
+| T04 Base32 | `0982209` | `Failure: 0, Pass: 85`（base32Test 16） | 字母表索引 31 `7`→`0` → **1 条**（`decodeIllegalChar_ab0`）变红 ✓ |
+| T05 原语 | `07be70b` | `Failure: 0, Pass: 70`（14/11/10） | 去掉 `Truncate` 的 `& 0x7f` → **4 条**变红 ✓ |
+| T06 TimeStep | `dae8bc8` | `Failure: 0, Pass: 38`（27） | `remainingSec` 丢 `t0` → **2 条**变红 ✓ |
+| T07 CryptoSource | `8da3abe` | `Failure: 0, Pass: 70`；`assembleHar` exit 0 | 固定 `'SHA1'` 映射 → 分支 B 本地**不红**（计划预期，红点归 T11 设备用例）|
+
+**并行 Wave 的实操经验（W4/W6 复用）**：
+- 「hvigor 锁 + git 锁 + 只 add 显式路径」三件套即可让 4 个 worker 并发互不干扰；提交后工作区只剩编排方维护的 `M docs/**`（预期）。
+- 共享文档（`docs/learning/ohos-otp-lib-rfc.md`、`docs/implementation/**`）在并发 Wave 中**由 worker 只追加、不提交**，由编排方在 Wave 末统一记账提交，避免相互夹带。
+- 并行期单测的 `Tests run` 总数会随其他任务落地而增长（12 → 38 → 70 → 85），**判定只看 `Failure: 0`**，不要拿总数做断言。

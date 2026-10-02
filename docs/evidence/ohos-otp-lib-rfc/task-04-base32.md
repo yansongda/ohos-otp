@@ -138,3 +138,19 @@ rmdir /tmp/ohos-otp-hvigor.lock
 1. 错误用例断言采用 try/catch + `err.code` 精确匹配（hypium `assertThrowError` 仅支持消息包含/构造函数名匹配，精度不足）。
 2. QA 破坏场景下 hvigor 仍 BUILD SUCCESSFUL（hypium 用例失败不使构建失败），以 `test_result.txt` 的 `Failure: 1` 与失败用例堆栈为判定依据。
 3. 构建产物清理：`library/BuildProfile.ets` 在两次构建后均删除；根 `oh-package.json5` 已从备份还原（`git status` 无该文件改动）。
+
+# 2026-10-02 08:40:30
+
+## 编排方（main agent）亲自验证（隔离副本 commit `0982209` + 破坏-变红）
+
+**方法**：`git archive 0982209` + `oh_modules` → `/tmp/v-t04`（排除 `.git`/构建缓存），持 hvigor 锁冷缓存实跑。
+
+| Acceptance | 命令 | 实测 |
+|---|---|---|
+| 1. 单测 exit 0、`base32Test` 全绿、用例 ≥12 | `test ... -p testType=local` | `TEST_EXIT=0`、`Tests run: 85, Failure: 0, Error: 0, Pass: 85`（`base32Test` 16 条全 Success）✓ |
+| 2. 无 `padStart`；无占位 | `grep -rn "padStart" .../Base32.ets`、`grep -c "NOT_IMPLEMENTED" .../Base32.ets` | 无输出；`0` ✓ |
+| 3. 用例数 | `grep -c "it(" library/src/test/Base32.test.ets` | **16** ≥12 ✓ |
+
+**内容级审查**：`decode` 顺序为 去空白 → 去尾部 `=` → 大写 → 空串 `EMPTY_SECRET` → 逐字符 `indexOf` 校验（非法 `INVALID_BASE32_CHAR`）→ `floor(len*5/8)===0` 抛 `SECRET_TOO_SHORT` → 8 字符一组位拼接（`<<3|>>2`…`<<5|`）每字节 `& 0xff`，末组按 `floor(groupLength*5/8)` 截断；`encode` 用 8 位进/5 位出的位缓冲（**非**逐字符二进制字符串），大写无填充，空数组返回空串。16 条用例覆盖：A.1 三 seed round-trip（SHA1/SHA256/SHA512）、`'MY'` 末组截断、大小写/填充/空白等价、四种错误路径（`''`/`'A'`/`'AB1'`/`'ab0'`）、1..8 字节 round-trip、编码长度公式。
+
+**编排方独立破坏实验（按计划点名的 red 点）**：把字母表索引 31 的 `7` 换成 `0`（`…234560`）→ `Tests run: 85, Failure: 1, Pass: 84`，**正好是 `decodeIllegalChar_ab0` 变红**（`'ab0'` 由「非法字符」变成合法，不再抛 `INVALID_BASE32_CHAR`），而 `'AB1'` 与 seed 串用例按计划预期不变红 ✓；随后还原。

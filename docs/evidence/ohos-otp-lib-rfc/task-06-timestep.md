@@ -123,3 +123,26 @@ Tests run: 70, Failure: 2, Error: 0, Pass: 68
 - 并发注意（已在 learning 追加）：W3 并发下 4 个 worker 共用 `/tmp/oh-package.json5.bak`，任一 worker 的还原步骤会把 oh-package.json5 覆写回 6.0.0，导致持锁方下一次构建报 00303027。本任务改用唯一备份名 `/tmp/oh-package-t06.bak` 规避；修复轮（QA 后重跑）即因此失败过一次，重做迁移后恢复。
 - 其他 worker 的 in-progress 文件（`Counter/Digits/Truncate/CryptoSource` + 各自 test）在 `git status` 中出现，属 W3 并行正常状态，本任务保留不动、不纳入提交。
 - `library/.test/.../test_result.txt` 为构建产物且跨运行累积，最终验收前已 `rm -f` 清零以获得权威结果。
+
+# 2026-10-02 08:06:40
+
+## 编排方（main agent）亲自验证（隔离副本 + 破坏-变红复现）
+
+**验证方法**：把 **commit `dae8bc8` 的完整树**导出到 `/tmp/v-t06`（`git archive` + 复制 `oh_modules`），隔离副本冷缓存实跑：
+
+```bash
+$HB --no-daemon -c modelVersion=6.1.1 test --mode module -p module=library@default -p testType=local
+# → t06 TEST_EXIT=0
+# → Tests run: 38, Failure: 0, Error: 0, Pass: 38, Ignore: 0      （Acceptance 1 ✓）
+```
+
+| Acceptance | 命令 | 实测 |
+|---|---|---|
+| 1. `timeStepTest` 全绿、用例 ≥15 | 见上 | `timeStepTest` 27 条全 Success，Failure: 0 ✓ |
+| 2. 用例数 | `grep -c "it(" library/src/test/TimeStep.test.ets` | **27** ≥15 ✓ |
+| 3. 无 `Date` 依赖 | `grep -rn "new Date\|Date.now" internal/TimeStep.ets` | 无输出 ✓ |
+| 4. 无占位 | `grep -c "NOT_IMPLEMENTED" internal/TimeStep.ets` | `0` ✓ |
+
+**内容级审查**：`assertValidInputs` 三态校验（`INVALID_TIMESTAMP`/`INVALID_T0`/`INVALID_PERIOD`）；`step/remainingSec/progress` 全部按 `s = floor(epochMs/1000)` 纯数值运算，**无 Date、无时区**；`remainingSec`/`progress` 都含 `+period) % period` 负值归一化与 `t0` 偏移；`constantTimeEquals` 长度不等才早退，其余逐字符 `|=` 累加异或。测试用例内**逐条写出推导注释**（如 `// s = floor(29999/1000) = 29；floor(29/30) = 0`），并覆盖计划点名的高危用例：`step(20000000000000,0,30)===666666666`、`remainingSec(1000,5,30)===4`、`remainingSec(31000,1,30)===30`、`step(1000,5,30)===-1`、`progress(45000,0,45)===0`。
+
+**编排方独立破坏实验**：按计划的 red 点把 `remainingSec` 改成 `period - Math.floor(epochMs / 1000) % period`（丢 `t0` 与负值归一化）→ `Tests run: 38, Failure: 2, Pass: 36`（**`t0≠0` 专项用例确实抓住该破坏**，而仅 `t0=0` 的用例不会红）；随后还原。同时确认 hvigor `test` 任务 exit code 在有失败时仍为 0 → 判据以 `test_result.txt` 的 `Failure` 为准（已写入 learning）。

@@ -161,3 +161,23 @@ Tests run: 70, Failure: 0, Error: 0, Pass: 70, Ignore: 0
  M library/src/test/Truncate.test.ets          ← T05，不动
 ?? docs/evidence/ohos-otp-lib-rfc/task-05-primitives.md  ← T05，不动
 ```
+
+# 2026-10-02 08:20:10
+
+## 编排方（main agent）亲自验证（隔离副本 commit `8da3abe`）
+
+**方法**：`git archive 8da3abe` + `oh_modules` → `/tmp/v-t07`（排除 `.git` 与构建缓存），持 hvigor 锁在副本内冷缓存实跑。
+
+| Acceptance | 命令 | 实测 |
+|---|---|---|
+| 1. 构建 exit 0（`*Sync` 可编译） | `assembleHar ... -p buildMode=release` | `BUILD_EXIT=0`、`BUILD SUCCESSFUL in 2 s 99 ms`、输出中 `ERROR` 计数 **0** ✓ |
+| 2. 单测 exit 0；分支 B 仅 1 条 smoke | `test ... -p testType=local` | `TEST_EXIT=0`、`Tests run: 70, Failure: 0, Error: 0, Pass: 70`；`grep -c "it(" CryptoSource.test.ets` = **1**，文件头注释明确写了分支 B 与「真实 crypto 断言见 T11 设备用例」✓ |
+| 3. 无组合规格 | `grep -n "HMAC\|" .../CryptoSource.ets` | 无输出（注释用「HMAC 管道符 SHA1」文字描述，规避字面串）✓ |
+| 4. HmacProvider 无 kit | `grep -n "@kit\." .../HmacProvider.ets` | 无输出；且 `git show --stat 8da3abe -- .../HmacProvider.ets` 为空 → **T07 未改动 T03 的注册表** ✓ |
+| 5. 错误码覆盖 | `grep -c "OtpErrorCode.CRYPTO_FAILED\|...CRYPTO_NOT_INITIALIZED"` | CryptoSource **2** + HmacProvider **2** = 4 ≥2 ✓ |
+| QA① 注册期不得调用 crypto（静态断言） | `awk '/function installCryptoDefaults/{f=1} f{print} f&&/^\}/{exit}' ... \| grep -c "cryptoFramework\."` | **0** ✓（`installCryptoDefaults` 只 `registerHmac(new …)` + `registerRandom(new …)`，已补完 T03 交接项） |
+| QA② 破坏 `algName` 映射为固定 `'SHA1'` | 副本内改后重跑单测 | 分支 B 下本地 `Tests run: 70, Failure: 0`（**预期不红**，与计划一致：该红点由 T11 设备用例承担），已如实记录并已还原 ✓ |
+
+**内容级审查**：`sign()` 用 `createSymKeyGenerator('HMAC')` 通用规格（未用管道符组合规格）→ `convertKeySync` → `createMac(toMacAlgName(algorithm))` → `initSync/updateSync/doFinalSync`，整段 `try/catch` 且 catch 抛固定文案 `OtpError(CRYPTO_FAILED,'CRYPTO_FAILED')`（**不吞错、不打日志、不透传原生错误、不含 key/message**）；`random()` 先校验 1–4096 整数（否则 `SECRET_TOO_WEAK`）再 `generateRandomSync`，同样 try/catch；`toMacAlgName` 用 switch 覆盖三算法无 default（穷举后返回值类型安全）。**无第三方实现、无 mock 系统 API**。
+
+**遗留（如实标注，不伪报）**：分支 B 下**本地无法验证真实 crypto 的运行时正确性**（`doFinalSync()` 在 PC 返回空 DataBlob），该缺口由 T11 的设备端 `cryptoAdapterTest` 覆盖；当前**无设备**（`hdc list targets` → `[Empty]`），T11 预计记录「未执行 + 人工步骤」。
