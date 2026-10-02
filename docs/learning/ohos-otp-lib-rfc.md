@@ -381,3 +381,14 @@ grep -E "^class=|^test=|^result=" library/.test/default/intermediates/test/cover
 - **包内 README 会滞后于工作区**：HAR 在 README 最后一次修改**之前**构建时，包内 README 就是旧版 → **交付前必须最后重新构建一次 HAR**（F3 会做）。
 - **⚠️ 时间戳诚实性更正**：编排方在 `task-08`/`task-10`/`task-11`/`task-12`/`task-13` 的「编排方亲自验证」节里使用了**估算时刻**（真实墙钟彼时未被读取，偏差约 +0.5～2.5 小时）。历史节遵守「纯追加」纪律不改写，此处声明更正；**此后所有追加一律用 `date "+%Y-%m-%d %H:%M:%S"` 实测值**。
 - **Code Linter 待人工**：CLI 无法执行；人工步骤 = DevEco → 右键 `library` → Code Linter；期望 `@security/no-unsafe-mac` 仅 warn、其余 `@security/*` 零命中。
+
+## 最终验证完成（main agent 追加，��
+
+- **F1–F4 全部 APPROVE**（详见 `docs/evidence/ohos-otp-lib-rfc/final-verification.md`）：
+  - **F1**：文件清单 100% 齐备、3 个模板文件已删；`git status` 零未跟踪项；`NOT_IMPLEMENTED` 仅余枚举；无普通 `Error` 抛出；**17/17 错误码逐字一致**。
+  - **F2**：无日志/无 `padStart`/无管道符规格；`@kit` 唯一导入点；无 TODO；`Secret` 无明文 `toString`；`verify` 无提前 return；公开类零引用 kit-only 层。
+  - **F3**：单测 `240/240 Failure: 0` + 覆盖率 `行 90.11% / 函数 87.27% / 分支 88.41%` + `assembleHar`/`assembleHap` exit 0 + `ohpm prepublish` exit 0；**设备端两项待人工**（无设备）。
+  - **F4**：零第三方依赖、无 UI 符号、无 lint 豁免、无非 RFC 能力、`compatibleSdkVersion = 6.0.0(20)` 未变、`build-profile.json5`/`code-linter.json5`/`hvigor/**` 零改动、旧 MFA 仓库零改动、零 push。
+- **最终验证发现并修复的真实缺陷**：`Secret.ets:45` 注释字面含 `CryptoSource` → 使 T03 的越界 grep 失效（F2 首轮未通过）。已派发 worker 修复（`150a856`，仅注释），复查清零 → F2 复评通过。**教训**：机械 grep 判据必须把「注释」也算进去；后续实现任务写中文注释时不要复述内部文件名。
+- **遗留待人工（用户项）**：① 设备/模拟器上跑 `cryptoAdapterTest`（37 用例，真实 crypto + barrel 链路）——注意本环境 **ohosTest 连编译都无法自动验证**（无 `ohosTest@CompileArkTS`，`genOnDeviceTestHap` 卡在 `PackageHap`）；② `entry` demo 设备端运行观察；③ DevEco Code Linter；④ `ohpm publish`（需账号/密钥，**本次未执行**，且同版本发布后不可覆盖）。
+- **本仓库最终状态**：`HEAD = 150a856` + 最终记账提交；工作区洁净；产物 `library/build/default/outputs/default/library.har`（30 651 字节，字节码 HAR，含四件套、无测试源码）。
