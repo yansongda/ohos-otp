@@ -1,12 +1,19 @@
 /**
  * 可注入随机源 fixture（固定递增序列）。
- * 占位：本文件唯一所有者是 T08，由 T08 补实现（T09 不得创建或修改）。
+ * 本文件唯一所有者是 T08；T09 不得创建或修改。
+ * random(bytes) 返回 bytes 个连续字节 0x00,0x01,…；lastRequestedBytes 记录最近一次请求长度供断言。
  */
 import { RandomSource } from '../main/ets/internal/HmacProvider';
 
 export class RandomFixture implements RandomSource {
+  lastRequestedBytes: number = -1;
+
   random(bytes: number): Uint8Array {
-    // TODO(T08): 由对应 todo 替换为真实实现
-    throw new Error('RandomFixture 占位：由 T08 实现');
+    this.lastRequestedBytes = bytes;
+    const result: Uint8Array = new Uint8Array(bytes);
+    for (let i = 0; i < bytes; i++) {
+      result[i] = i & 0xff;
+    }
+    return result;
   }
 }
