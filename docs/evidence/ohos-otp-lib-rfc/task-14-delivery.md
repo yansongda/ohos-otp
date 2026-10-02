@@ -348,3 +348,78 @@ PREPUBLISH_EXIT=0
 **⑥ QA failure 场景复核（worker 的重要发现）**：`ohpm prepublish` **不校验**四件套是否齐备——删掉 `library/CHANGELOG.md` 后重建 HAR，`prepublish` 仍 exit 0。worker 用 3 个畸形 HAR 探针（坏归档 / 缺 `oh-package.json5` / 缺 `name`）证明该校验器**确实有效**（三者均 exit 1）。→ 计划的「删 CHANGELOG 应报错」预期**与工具实际行为不符**，属工具能力边界，非本任务缺陷；已在 README 检查清单中注明「prepublish 校验归档格式与 oh-package.json5 元数据，不校验四件套」，并把「四件套齐备」作为**人工检查项**保留。worker 曾漏还原 CHANGELOG，已从 HEAD 恢复并重建 HAR——编排方已核对 `library/CHANGELOG.md` 内容完整（19 行，含 `## 1.0.0 - 2026-10-01`）且与包内一致 ✓
 
 **⑦ Code Linter（如实标注）**：无法在 CLI 自动执行 → **待人工**。人工步骤：DevEco Studio → 右键 `library` → `Code Linter`（或 Code > Code Linter）→ 选择全工程 → 期望：`@security/no-unsafe-mac` 仅 **warn**（HMAC 用法本身合规），其余 `@security/*` 规则应 **零命中**；此外 `grep -rn "hilog\|console\.\|padStart\|HMAC|\" library/src/main/ets/` 应为空（F2 已机器校验）。
+
+# 2026-10-02 09:52:37
+
+**背景**：编排方在 T03/T14/F2 最终验证中实测到机械判据 grep 被**注释命中**污染（功能无影响，但判据必须清零）：
+
+```bash
+$ grep -rn "CryptoSource" library/src/main/ets/Secret.ets
+library/src/main/ets/Secret.ets:45:   * （该错误码选择理由见 evidence：与 internal/CryptoSource 的 CryptoFrameworkRandom.random
+```
+
+修复方式：仅改写 `library/src/main/ets/Secret.ets` 第 43–46 行附近注释，删除字面串 `CryptoSource`（及任何 `@kit.` 字样），保留原意（错误码选择与内部随机源实现对同一边界校验保持一致，依据设计 §3.3）。**未改动任何代码逻辑**。
+
+注释改写前后 diff：
+
+```diff
+   /**
+    * 随机生成 bytes 字节的 secret（默认 20 字节 = RFC 4226 推荐 160 bit）。
+    * 校验 bytes 为 [1, 4096] 整数，否则抛 SECRET_TOO_WEAK
+-   * （该错误码选择理由见 evidence：与 internal/CryptoSource 的 CryptoFrameworkRandom.random
+-   *  对同一边界校验使用同一错误码，且设计 §3.3 把「随机强度不足」归入 SECRET_TOO_WEAK）。
++   * （该错误码选择理由见 evidence：与内部随机源实现对 [1, 4096] 边界使用同一错误码，
++   *  且设计 §3.3 把「随机强度不足」归入 SECRET_TOO_WEAK）。
+    * 随机源经注册表 requireRandom() 取用（本文件不 import kit）。
+```
+
+**① 越界 grep 清零 + diff 范围**（真实输出）：
+
+```bash
+$ grep -rn "CryptoSource" library/src/main/ets/Secret.ets library/src/main/ets/HOTP.ets library/src/main/ets/TOTP.ets library/src/main/ets/OTPAuthURI.ets library/src/main/ets/internal/OtpEngine.ets
+# 无输出（grep exit=1）
+$ git diff --stat -- library/src/main/ets/Secret.ets
+ library/src/main/ets/Secret.ets | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+```
+
+**② 全量本地单测**（`hvigorw test --mode module -p module=library@default -p testType=local`，`modelVersion=6.1.1`，真实输出尾部）：
+
+```
+> hvigor BUILD SUCCESSFUL in 2 s 424 ms
+$ grep -E "^Tests run" library/.test/default/intermediates/test/coverage_data/test_result.txt
+Tests run: 240, Failure: 0, Error: 0, Pass: 240, Ignore: 0
+```
+
+**③ 重建 release HAR**（`hvigorw assembleHar --mode module -p module=library@default -p product=default -p buildMode=release`）：
+
+```
+> hvigor BUILD SUCCESSFUL in 2 s 74 ms
+$ ls -la library/build/default/outputs/default/library.har
+-rw-r--r--@ 1 yansongda  staff  30663 10月  2 09:52 library/build/default/outputs/default/library.har
+```
+
+**④ 包内四件套与工作区一致**（真实输出）：
+
+```bash
+$ diff /tmp/harcheck/package/README.md library/README.md && echo "README 一致"
+README 一致
+$ diff /tmp/harcheck/package/CHANGELOG.md library/CHANGELOG.md && echo "CHANGELOG 一致"
+CHANGELOG 一致
+$ gunzip -c library/build/default/outputs/default/library.har | tar -tf - | grep -c "src/test\|ohosTest"
+0
+```
+
+**⑤ prepublish**（`ohpm prepublish library/build/default/outputs/default/library.har`，真实输出）：
+
+```
+ohpm WARN: The package to be published has the following problem(s):
+* the har file "library.har" contains source code, which may cause code asset leakage.
+
+prepublish @yansongda/otp 1.0.0 succeed.
+PREPUBLISH_EXIT=0
+```
+
+（WARN 为 ohpm 对 HAR 含源码的常规提示，非失败。）
+
+**结论**：越界 grep 判据清零；240 个单测全过（Failure: 0）；新 HAR（30663 字节）包内 README/CHANGELOG 与工作区一致且不含测试源码；prepublish exit 0；`Secret.ets` 仅注释行变化，无任何逻辑改动。提交 `refactor(otp): 移除 Secret 注释中对内部 kit-only 文件的字面引用`。

@@ -42,8 +42,8 @@ export class Secret {
   /**
    * 随机生成 bytes 字节的 secret（默认 20 字节 = RFC 4226 推荐 160 bit）。
    * 校验 bytes 为 [1, 4096] 整数，否则抛 SECRET_TOO_WEAK
-   * （该错误码选择理由见 evidence：与 internal/CryptoSource 的 CryptoFrameworkRandom.random
-   *  对同一边界校验使用同一错误码，且设计 §3.3 把「随机强度不足」归入 SECRET_TOO_WEAK）。
+   * （该错误码选择理由见 evidence：与内部随机源实现对 [1, 4096] 边界使用同一错误码，
+   *  且设计 §3.3 把「随机强度不足」归入 SECRET_TOO_WEAK）。
    * 随机源经注册表 requireRandom() 取用（本文件不 import kit）。
    */
   static generate(bytes: number = 20): Secret {
