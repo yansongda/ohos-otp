@@ -621,7 +621,7 @@ Your next move: 执行计划。Full execution detail follows below.
 
 ### W7
 
-- [ ] 14. 覆盖率、产物检视与交付收尾
+- [x] 14. 覆盖率、产物检视与交付收尾
   **What to do**：
   1. 跑覆盖率：`<T02 覆盖率命令>`（形如 `hvigorw test -p module=library -p coverage=true`），确认报告生成（用 T02 记录的**实际报告路径**，不要硬编码）；把总覆盖率数值（行/分支）与未覆盖文件清单写进 evidence。目标：`internal/**` + `OtpError`/`OtpOptions`/`Secret`/`OTPAuthURI`/`HOTP`/`TOTP` 覆盖率尽量高；`internal/CryptoSource.ets` 与 `Index.ets`（分支 B）允许低覆盖，但必须列出并说明原因（PC 无系统能力）。
   2. 清零占位：`grep -rn "NOT_IMPLEMENTED" library/src/main/ets/` 必须只剩 `OtpError.ets` 里的**枚举定义**，不得有 `throw new OtpError(OtpErrorCode.NOT_IMPLEMENTED`。

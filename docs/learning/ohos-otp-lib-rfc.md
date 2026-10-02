@@ -362,3 +362,22 @@ grep -E "^class=|^test=|^result=" library/.test/default/intermediates/test/cover
   → 因此 ohosTest 的编译/运行**只能经 DevEco IDE + 设备**；任何 ohosTest 源码改动都属于「静态核对 + 待人工」级别，不可宣称已验证。
 - **人工验证步骤（交付给用户）**：DevEco 打开工程 → 启动模拟器/连真机 → 右键 `library/src/ohosTest/ets/test/CryptoAdapter.test.ets` → Run `cryptoAdapterTest` → 期望 37/37 绿；若报跨 source set 导入错误，**机械性回退**：把 `import { TOTP as BarrelTOTP } from '../../../../Index.ets'` 换成 `import { installCryptoDefaults, requireHmac } from '../../../main/ets/internal/CryptoSource'` 并在用例内调用注册后断言 `requireHmac()` 可用。
 - **`library/oh-package-lock.json5`**：由 `ohpm install --all` 生成（library 有 devDependencies 时 ohpm 会为模块生成 lock），已入库以保持与 `entry/oh-package-lock.json5` 一致，并满足 F1「零新增未跟踪项」。
+
+## T14 覆盖率/产物/prepublish 交付收尾（worker 追加，2026-10-02 09:44:11）
+
+- **覆盖率报告会混入「已删除文件」的陈旧条目**：首轮覆盖率报告含 `components/MainPage.ets`（0%，11 行）——该文件 T03 已删，条目来自 `.test/default/cache/default/default@UnitTestArkTS/esmodule/debug/.../components/` 编译缓存与 `init_coverage.json`。清 stale 缓存后重跑即消失。**但别直接删 `init_coverage.json`**：会触发 `00507014 init_coverage.json does not exist`（增量下 UnitTestArkTS UP-TO-DATE 不重建）；正确姿势 = 清整个 `library/.test/default/cache/default/default@UnitTestArkTS` 强制全量重编译。
+- **覆盖率命令末尾务必 `rmdir /tmp/ohos-otp-hvigor.lock`**：T14 首轮覆盖率漏释放锁，导致下一命令在等锁循环空转 900s 超时（命令被杀不产日志，先查锁再 pkill）。教训：持锁命令的锁释放要写进同一个 bash 尾部，别依赖事后补。
+- **`ohpm prepublish <har>` 只校验 HAR 包内 `oh-package.json5` 元数据与归档格式，不校验 README/CHANGELOG/LICENSE 四件套**。实测：① 删源码 `library/CHANGELOG.md`（不重建）→ 包内仍含 CHANGELOG，prepublish 通过；② 删 CHANGELOG 后重建 HAR（包内确实无 CHANGELOG）→ **prepublish 仍 exit 0**。todo 预设的「删 CHANGELOG 必报错」不成立。四件套校验在平台侧 `ohpm publish`（OHPM《发布必要文件》），README 检查清单条目照留、按 HAR 包内实测勾选。
+- **prepublish 校验器有效性的证明探针**（/tmp 自造畸形 HAR，碰仓库文件前先这样试）：空 gzip → `TAR_BAD_ARCHIVE` exit 1；tar 无 `oh-package.json5` → `00608002 Missing file "oh-package.json5"` exit 1；`oh-package.json5` 缺 `name` → `00630023 Check oh-package.json5 Field Error ... name can not be empty` exit 1（另 WARN compatibleSdkVersion/compatibleSdkType/obfuscated 缺失）。prepublish 解包到 `~/.ohpm/cache/harball/<hash>` 后校验。
+- **prepublish 的正常 WARN**：`the har file "library.har" contains source code` —— 字节码 HAR 的 `.d.ets` 类型声明被 ohpm 判为「含源码」，发布必需，非错误，别误当失败。
+- **QA 临时删文件必须「同一次执行内恢复」**：T14 第二轮删 CHANGELOG 后漏还原、且清理时误删备份，一度 `git status` 出现 `D library/CHANGELOG.md`；靠 `git checkout -- library/CHANGELOG.md` 从 HEAD 恢复（内容未变）。教训：临时文件删除+还原写成「删→验→还原」单条命令，别跨命令，备份名唯一且还原前不清理。
+- **T14 最终产物**：release HAR `/Users/yansongda/000-Coding/ohos-otp/library/build/default/outputs/default/library.har` = 30392 字节（35 条目，字节码 HAR，四件套在包内）；干净覆盖率报告行 90.11% / 分支 88.41% / 函数 87.27%（13 文件，`OtpOptions.ets` 纯类型不入报告、`Index.ets` barrel 本地测试不加载不入报告）；`Tests run: 240, Failure: 0`。
+- **未覆盖结构（供 F 审查对照）**：`CryptoSource.ets` 0%（分支 B，设备端 ohosTest 兜底）；`HmacProvider.ets` 58.82%（`sign`/`random` 委派方法 + `requireHmac`/`requireRandom` 未注册负分支 + `resetForTest`）；`OTPAuthURI.ets` 93.57%（非法输入抛错负分支）；`Secret.ets` 96%（`fromBase32` 的 EMPTY_SECRET throw 是防御死分支，`Base32.decode('')` 先抛）；`OtpEngine.ets` 96.15%（verify 的负/不安全 counter 跳过分支）。
+
+## T14 完成 + 交付结论（main agent 追加，��
+
+- **commit `d0ee6ef`**：`NOT_IMPLEMENTED` throw 清零（仅余枚举定义）；release HAR `library/build/default/outputs/default/library.har` **30 392 字节**（字节码 HAR，35 条，含四件套，无 `src/test`/`ohosTest`）；`ohpm prepublish` **exit 0**（唯一 WARN = 包内含 `.d.ets` 声明，字节码 HAR 固有形态）；覆盖率 **行 90.11%（419/465）/ 分支 88.41%（183/207）/ 函数 87.27%（48/55）**；`internal/CryptoSource.ets` 0%（分支 B，设备端兜底）、`HmacProvider` 的接口方法与 `resetForTest` 未覆盖（接口声明 + 未调用）。
+- **`ohpm prepublish` 能力边界（重要，后续别误信）**：它**不校验四件套是否齐备**（删 CHANGELOG 后重建 HAR 仍 exit 0），只校验**归档格式**与包内 **`oh-package.json5` 元数据**（用「坏归档 / 缺 oh-package.json5 / 缺 name」三个探针均 exit 1 验证有效）。→ 「四件套齐备」必须作为**人工检查项**。
+- **包内 README 会滞后于工作区**：HAR 在 README 最后一次修改**之前**构建时，包内 README 就是旧版 → **交付前必须最后重新构建一次 HAR**（F3 会做）。
+- **⚠️ 时间戳诚实性更正**：编排方在 `task-08`/`task-10`/`task-11`/`task-12`/`task-13` 的「编排方亲自验证」节里使用了**估算时刻**（真实墙钟彼时未被读取，偏差约 +0.5～2.5 小时）。历史节遵守「纯追加」纪律不改写，此处声明更正；**此后所有追加一律用 `date "+%Y-%m-%d %H:%M:%S"` 实测值**。
+- **Code Linter 待人工**：CLI 无法执行；人工步骤 = DevEco → 右键 `library` → Code Linter；期望 `@security/no-unsafe-mac` 仅 warn、其余 `@security/*` 零命中。
