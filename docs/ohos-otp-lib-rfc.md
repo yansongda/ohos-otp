@@ -189,7 +189,7 @@ ohos-otp/
 
 | API | 语义 | 规范依据 |
 |---|---|---|
-| `new TOTP(options: TotpOptions, provider?: HmacProvider)` | 构造；**同步**校验选项，非法即抛 `OtpError`；`provider` 为 `@internal` 测试 seam，缺省走 `requireHmac()` | — |
+| `new TOTP(options: TotpOptions, provider?: HmacProvider)` | 构造；**同步**校验选项，非法即抛 `OtpError`；`provider` 为仅供库内测试注入的可选参数（`HmacProvider` 不随 barrel 导出），缺省走 `requireHmac()` | — |
 | `totp.generate(timestampMs?: number): string` | 生成当前（或指定时刻）验证码；返回 `digits` 位零填充字符串 | RFC 6238 §4.2 |
 | `totp.verify(token: string, options?: VerifyOptions): number \| null` | 恒定时间比对；返回命中窗口相对当前步的**偏移 delta**（0=当前步，-1=上一步），未命中返回 `null` | RFC 6238 §5.2/§6 |
 | `totp.remaining(timestampMs?: number): number` | 当前窗口剩余**整秒**，取值 `[1, period]` | — |

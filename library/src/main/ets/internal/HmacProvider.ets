@@ -48,8 +48,8 @@ export function requireRandom(): RandomSource {
   return randomSource;
 }
 
-/** @internal 测试专用：清空两个单例，供测试验证未注册分支。 */
-export function resetForTest(): void {
+/** 清空已注册的 HMAC 与随机源实现，恢复到「未注册」状态。 */
+export function reset(): void {
   hmacProvider = null;
   randomSource = null;
 }

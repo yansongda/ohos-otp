@@ -19,7 +19,9 @@ export class HOTP {
   private readonly _issuer: string | undefined;
   private readonly _account: string | undefined;
 
-  /** @internal 仅供测试注入 */
+  /**
+   * @param provider 仅供库内测试注入（HmacProvider 未随 barrel 导出）；调用方省略即走 requireHmac() 的默认实现。
+   */
   constructor(options: HotpOptions, provider?: HmacProvider) {
     const secret: Secret = Secret.fromBase32(options.secret);
     const algorithm: OtpAlgorithm = options.algorithm === undefined ? OtpAlgorithm.SHA1 : options.algorithm;
