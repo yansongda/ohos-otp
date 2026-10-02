@@ -148,7 +148,7 @@ All failures throw `OtpError` with a fixed `code` (string). Messages never conta
 ## Testing status
 
 - **Local unit tests (Local Test) cover the kit-free pipeline**: Base32, counter/truncate/digits primitives, time-step math, the OTP engine, `Secret`, `OTPAuthURI` and the `HOTP`/`TOTP` public classes — all with injected test fixtures (a fake HMAC provider and a fake random source). The full RFC 4226 Appendix D (10 vectors) and RFC 6238 Appendix B (18 vectors) suites pass.
-- **Branch-B gap (important)**: on a PC, HarmonyOS Local Test cannot execute the real system crypto — `@kit.CryptoArchitectureKit` imports fine but calls return empty data. Therefore the **real crypto path** (`CryptoFrameworkHmac` / `CryptoFrameworkRandom`) and the **barrel registration chain** (`Index.ets` → `installCryptoDefaults()`) are covered by the `ohosTest` device suite (`CryptoAdapter.test.ets`), which requires a device/emulator. As of this release it is pending manual verification on a device.
+- **Real-crypto path is covered on device (not on PC)**: HarmonyOS Local Test cannot execute the real system crypto — `@kit.CryptoArchitectureKit` imports fine but calls return empty data. That path (`CryptoFrameworkHmac` / `CryptoFrameworkRandom`) plus the **barrel registration chain** (`Index.ets` → `installCryptoDefaults()`) is therefore covered by the `ohosTest` device suite (`CryptoAdapter.test.ets`, 37 cases) and needs a device/emulator. **On a HarmonyOS emulator that suite runs all green: `Tests run: 37, Failure: 0, Error: 0, Pass: 37`** — 3 HMAC digests, the full RFC 4226 Appendix D / RFC 6238 Appendix B vector sets, and the default-provider path with no fixtures injected.
 - No coverage figures are claimed for paths not exercised by the local suite.
 
 ## Known limitations
@@ -173,7 +173,7 @@ All failures throw `OtpError` with a fixed `code` (string). Messages never conta
 - [x] `CHANGELOG.md` contains the current version number (`## 1.0.0`)
 - [x] `dependencies` is empty (`{}`) — zero runtime dependencies
 - [x] `ohpm prepublish <har>` passes locally (exit 0; note: it validates archive format and `oh-package.json5` metadata, not the four-file set)
-- [x] Local test coverage: 90.1% lines / 88.4% branches / 87.3% functions (report at `library/.test/default/outputs/test/reports/`); `internal/CryptoSource.ets` and `HmacProvider.ets` real-crypto paths are covered by device-side `ohosTest` (not runnable on PC, branch B)
+- [x] Local test coverage: 90.1% lines / 88.4% branches / 87.3% functions (report at `library/.test/default/outputs/test/reports/`); `internal/CryptoSource.ets` and `HmacProvider.ets` real-crypto paths are covered by the device-side `ohosTest` (not runnable on PC; device suite green 37/37)
 - [ ] Publish gate (manual, needs OHPM account + key): `ohpm publish <har>` — a published version cannot be overwritten or re-used, publish a new version instead
 
 ## License

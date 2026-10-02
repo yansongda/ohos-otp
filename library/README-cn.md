@@ -148,7 +148,7 @@ try {
 ## 测试与限制说明
 
 - **本地单测（Local Test）覆盖 kit-free 全链路**：Base32、counter/truncate/digits 原语、时间步计算、OTP 引擎、`Secret`、`OTPAuthURI` 与 `HOTP`/`TOTP` 公开类——全部经注入测试 fixture（伪 HMAC provider 与伪随机源）。RFC 4226 Appendix D（10 条）与 RFC 6238 Appendix B（18 条）全量官方向量通过。
-- **分支 B 缺口（重要）**：PC 上 HarmonyOS Local Test 无法执行真实系统 crypto——`@kit.CryptoArchitectureKit` 可 import 但调用返回空数据。因此**真实 crypto 路径**（`CryptoFrameworkHmac` / `CryptoFrameworkRandom`）与 **barrel 注册链路**（`Index.ets` → `installCryptoDefaults()`）由 `ohosTest` 设备套件（`CryptoAdapter.test.ets`）覆盖，需要设备/模拟器。截至本发布，该项**待人工在设备上验证**。
+- **真实 crypto 路径由设备端用例覆盖（PC 无法执行）**：HarmonyOS Local Test 无法执行真实系统 crypto——`@kit.CryptoArchitectureKit` 可 import 但调用返回空数据。因此**真实 crypto 路径**（`CryptoFrameworkHmac` / `CryptoFrameworkRandom`）与 **barrel 注册链路**（`Index.ets` → `installCryptoDefaults()`）由 `ohosTest` 设备套件（`CryptoAdapter.test.ets`，37 条）覆盖，需要设备/模拟器。**已在 HarmonyOS 模拟器上实测全绿：`Tests run: 37, Failure: 0, Error: 0, Pass: 37`**——含 3 条 HMAC digest、RFC 4226 Appendix D / RFC 6238 Appendix B 全量向量，以及不注入 fixture 的默认 provider 链路。
 - 本库不宣称任何未经本地套件实际执行的覆盖率数字。
 
 ## 已知限制
