@@ -58,7 +58,13 @@ $OHPM prepublish library/build/default/outputs/default/library.har
 $HB --no-daemon -c modelVersion=6.1.1 onDeviceTest --mode module -p module=library@default -p testType=ohosTest
 #  备选：DevEco Studio → 右键 library/src/ohosTest → Run；或 hdc install 后
 #  $HDC shell "aa test -b cn.yansongda.otp -m library_test -s unittest OpenHarmonyTestRunner -s timeout 120000"
+
+# 零 SDK 依赖的两条（CI 的 guard.yml / ci.yml 跑的就是它们，可先跑）
+bash scripts/ci/lint-local.sh          # CodeLinter；exit 4 = 命中 error，0 = 通过（不带 -e 永远 0）
+node scripts/ci/check-invariants.mjs   # 仓库不变量守卫（9 项）
 ```
+
+**CI（GitHub Actions）**：`guard.yml` = 不变量守卫（ubuntu-latest，无 SDK，秒级）；`ci.yml` = CodeLinter + PC 单测（覆盖率门槛 88%）+ `assembleHar` + `ohpm prepublish` + entry HAP smoke，产物含 `library.har` 与覆盖率报告。工具链取自社区镜像的华为 command-line-tools（`CLI_VERSION` 与归档 sha256 钉在 workflow 里，升级走显式 PR）；本地无 SDK 时用上面两条脚本 + `bash scripts/ci/lint-local.sh` 复现 lint 与守卫。**CI 不执行 `ohpm publish` / `git push`**（§7 人工闸门）。
 
 **hvigor 并发**：同一时刻只跑一个 hvigor 任务（工程级锁），并行 agent 需串行放行。
 
@@ -80,7 +86,7 @@ $HB --no-daemon -c modelVersion=6.1.1 onDeviceTest --mode module -p module=libra
 - 不引入运行时依赖（含测试期第三方算法库）；`dependencies` 必须保持 `{}`。
 - 错误一律 `throw new OtpError(code, FIXED_MESSAGE)`；不得新增错误码，也不得改已有码的字符串值。
 - ArkTS 注意：位运算是 32 位有符号（大整数须 high/low 拆分）；不用 `padStart`；不假设 `URLSearchParams` 可用；`JSON.stringify` 会调用 `toJSON()`。
-- lint：`@security/no-unsafe-mac` 对 HMAC-SHA1 报警为 **warn 且有意接受**（RFC 6238 §1.2 互操作依据）；不放宽规则、不加 disable 注释。
+- lint：`code-linter.json5` 里 `@security/no-unsafe-mac` 保留 warn 是**有意的策略保留**（RFC 6238 §1.2 互操作依据）；不放宽规则、不加 disable 注释。注意 2026-10-02 实测：全库扫描 0 缺陷——算法名经参数传入而非字面量，该规则当前不触发；CI 用 `-e error`，因此不会被它卡住。
 
 ## 6. 文档职责
 
@@ -105,3 +111,4 @@ $HB --no-daemon -c modelVersion=6.1.1 onDeviceTest --mode module -p module=libra
 - 构建会写 `hvigor/` 缓存、`local.properties` 与模块根 `BuildProfile.ets`（均已 gitignore）；不要把构建产物提交进来。
 - HAR 模块的 ohosTest 打包可能报 `--resources-path is invalid`（工程级限制）；设备用例优先走 DevEco IDE。
 - `hdc` 不在 PATH，用上面的绝对路径。
+- CodeLinter 两种入口：华为 command-line-tools 的 `codelinter`，或 DevEco 内置引擎 `<DevEco>/Contents/plugins/codelinter/run/index.js`（`scripts/ci/lint-local.sh` 会自动二选一）。三个坑：**不带 `-e` 时无论多少缺陷都返回 0**；lint 路径必须在工程目录内；工程根必须有 `hvigorfile.ts`，否则报 `The entered inspection path is incorrect`。

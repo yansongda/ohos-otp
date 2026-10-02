@@ -1,0 +1,299 @@
+# ohos-otp 主 CI：CodeLinter + PC 单测（含覆盖率）+ HAR/HAP 构建。
+#
+# 设计约束（都有证据，改动前先读）：
+#  1. 不用自托管 runner：本仓库是公开仓库，GitHub 官方明确不建议
+#     （fork 的 PR 可以在自托管 runner 上执行任意代码）；公开仓库的标准托管 runner 免费。
+#  2. 工具链必须包含 HarmonyOS SDK。build-profile.json5 里 runtimeOS=HarmonyOS，
+#     hvigor 会走 HmosSdkLoader（源码：hvigor-ohos-plugin/src/sdk/sdk-loader.js），
+#     因此 huaweicloud 上公开的 OpenHarmony SDK 不能用；华为官方下载需登录 +
+#     短时效签名链接，无法脚本化。这里用社区镜像的固定 release，并按「合并后归档」
+#     的 sha256 钉死——镜像内容变化必然让 CI 失败。
+#     ⚠️ 首次启用建议：用你自己的华为账号下载同版本 command-line-tools，人工比对一次 sha256。
+#  3. `ohpm publish` / `git push` 一律不在 CI 里执行（AGENTS.md §7 的人工闸门）。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 与 build-profile.json5 的 targetSdkVersion 6.1.1(24) / hvigor modelVersion 6.1.1 同代。
+  # 升级 SDK 是一个显式 PR（同时要改下面的 sha256）。
+  CLI_VERSION: '6.1.1.280'
+  CLI_MIRROR: https://github.com/ErBWs/ohos-sdk/releases/download
+  # 覆盖率门槛（当前 90.11%，留一点合理浮动）
+  COVERAGE_MIN_LINES: '88'
+
+jobs:
+  build-and-test:
+    name: codeLinter + local tests + HAR
+
+    # 若 Linux 上 `hvigorw test -p testType=local` 出现问题，把这里改成 macos-15 即可：
+    # macOS/ARM64 的归档名与 sha256 已经在下面的 Resolve 步骤里备好。
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # 便宜且快速的守卫，重复跑一次以便单看 ci.yml 也能自证
+      - name: Check repo invariants
+        run: node scripts/ci/check-invariants.mjs
+
+      # Linux 缺 libGL.so.1 会在资源处理阶段报错（华为文档 ide-command-line-building-app 要求）
+      - name: Install Linux runtime deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev
+
+      - name: Resolve toolchain archive
+        id: toolchain
+        run: |
+          set -euo pipefail
+          case "${RUNNER_OS}/${RUNNER_ARCH}" in
+            Linux/X64)
+              {
+                echo 'archive=ohos-sdk-linux-amd64.tar.gz'
+                echo 'sha256=3d37eb5a3a81358a9731c35265f4f29d8ecf1028b0bbbb777f2928cd6990aa83'
+                echo 'kind=tar.gz'
+              } >> "$GITHUB_OUTPUT"
+              ;;
+            macOS/ARM64)
+              {
+                echo 'archive=ohos-sdk-mac-arm64.zip'
+                echo 'sha256=47d0e558b8285e1452f4d3611863027ec0d1135642761bef23402434e22382d4'
+                echo 'kind=zip'
+              } >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::未支持的 runner（${RUNNER_OS}/${RUNNER_ARCH}），请在此补一组归档名与 sha256"
+              exit 1
+              ;;
+          esac
+
+      - name: Cache toolchain
+        id: toolchain-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.harmony-cli/${{ env.CLI_VERSION }}
+          key: harmony-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.CLI_VERSION }}
+
+      - name: Install toolchain
+        if: steps.toolchain-cache.outputs.cache-hit != 'true'
+        env:
+          ARCHIVE: ${{ steps.toolchain.outputs.archive }}
+          ARCHIVE_SHA256: ${{ steps.toolchain.outputs.sha256 }}
+          KIND: ${{ steps.toolchain.outputs.kind }}
+        run: |
+          set -euo pipefail
+          install_root="$HOME/.harmony-cli/$CLI_VERSION"
+          base="$CLI_MIRROR/$CLI_VERSION/$ARCHIVE"
+          work="$RUNNER_TEMP/$ARCHIVE"
+          mkdir -p "$install_root"
+
+          if [ "$KIND" = 'zip' ]; then
+            curl --fail --location --retry 3 --retry-all-errors --output "$work" "$base"
+          else
+            # 分片存放，必须拼接后再校验（校验的是合并后的归档）
+            curl --fail --location --retry 3 --retry-all-errors --output "$work.aa" "$base.aa"
+            curl --fail --location --retry 3 --retry-all-errors --output "$work.ab" "$base.ab"
+            cat "$work.aa" "$work.ab" > "$work"
+            rm -f "$work.aa" "$work.ab"
+          fi
+
+          actual="$( { shasum -a 256 "$work" 2>/dev/null || sha256sum "$work"; } | awk '{print $1}' )"
+          if [ "$actual" != "$ARCHIVE_SHA256" ]; then
+            echo "::error::工具链 sha256 不匹配：期望 $ARCHIVE_SHA256，实际 $actual"
+            exit 1
+          fi
+
+          if [ "$KIND" = 'zip' ]; then
+            unzip -q "$work" -d "$install_root"
+          else
+            tar -xzf "$work" -C "$install_root"
+          fi
+          rm -f "$work"
+
+          if [ ! -d "$install_root/command-line-tools" ]; then
+            echo "::error::归档解包结构与预期不符"
+            ls -la "$install_root"
+            exit 1
+          fi
+
+      - name: Configure toolchain
+        run: |
+          set -euo pipefail
+          tool="$HOME/.harmony-cli/$CLI_VERSION/command-line-tools"
+
+          test -x "$tool/bin/hvigorw" || { echo "::error::缺少 $tool/bin/hvigorw"; ls -la "$tool/bin" || true; exit 1; }
+          test -x "$tool/bin/ohpm"    || { echo "::error::缺少 $tool/bin/ohpm";    ls -la "$tool/bin" || true; exit 1; }
+          test -d "$tool/sdk/default" || { echo "::error::SDK 未随工具链下发";     ls -la "$tool/sdk" || true; exit 1; }
+
+          # 工具链自带 node，加到 PATH 以贴近 DevEco 的实际行为（找不到则用 runner 的 node）
+          if [ -d "$tool/tool/node/bin" ]; then
+            echo "$tool/tool/node/bin" >> "$GITHUB_PATH"
+          fi
+          echo "$tool/bin" >> "$GITHUB_PATH"
+
+          # DEVECO_SDK_HOME 必须指向 default/ 的父目录（AGENTS.md §8 的环境坑）
+          {
+            echo "DEVECO_SDK_HOME=$tool/sdk"
+            echo "HOS_SDK_HOME=$tool/sdk"
+            echo "OHOS_NDK_HOME=$tool/sdk/default/openharmony"
+          } >> "$GITHUB_ENV"
+
+      - name: Verify toolchain
+        run: |
+          set -euo pipefail
+          node --version
+          hvigorw -v
+          ohpm --version
+          echo "DEVECO_SDK_HOME=$DEVECO_SDK_HOME"
+          cat "$DEVECO_SDK_HOME/default/sdk-pkg.json" || true
+
+      - name: Cache ohpm store
+        uses: actions/cache@v6
+        with:
+          path: ~/.ohpm
+          key: ohpm-${{ runner.os }}-${{ hashFiles('**/oh-package.json5', '**/oh-package-lock.json5') }}
+          restore-keys: |
+            ohpm-${{ runner.os }}-
+
+      - name: Install ohpm dependencies
+        run: |
+          set -euo pipefail
+          ohpm config set registry https://ohpm.openharmony.cn/ohpm/
+          ohpm install --all
+
+      - name: Run CodeLinter
+        run: |
+          set -euo pipefail
+          bin="$(command -v codelinter || true)"
+          if [ -z "$bin" ]; then
+            bin="$(find "$HOME/.harmony-cli/$CLI_VERSION" -maxdepth 5 -type f -name codelinter -perm -u+x 2>/dev/null | head -n 1 || true)"
+          fi
+          if [ -z "$bin" ]; then
+            echo "::error::工具链里没找到 codelinter 可执行文件"
+            find "$HOME/.harmony-cli/$CLI_VERSION" -maxdepth 3 -type d | head -40
+            exit 1
+          fi
+
+          # 必须带 -e：不带 -e 时 codelinter 无论发现多少缺陷都返回 0（假绿灯）
+          "$bin" -c ./code-linter.json5 -o "$RUNNER_TEMP/codelinter.json" -f json -e error .
+
+          REPORT="$RUNNER_TEMP/codelinter.json" node -e '
+            const fs = require("node:fs");
+            const files = JSON.parse(fs.readFileSync(process.env.REPORT, "utf8"));
+            const flat = files.flatMap((f) => (f.messages || []).map((m) => ({ file: f.filePath, ...m })));
+            const count = (severity) => flat.filter((m) => m.severity === severity).length;
+            const summary = `errors ${count("error")} / warns ${count("warn")} / suggestions ${count("suggestion")}`;
+            console.log(`CodeLinter  ${summary}`);
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### CodeLinter\n\n\`${summary}\`\n`);
+            for (const m of flat.slice(0, 20)) {
+              console.log(`  ${m.file}:${m.line} ${m.severity} ${m.rule} ${m.message}`);
+            }
+          '
+
+      - name: Local unit tests with coverage
+        run: |
+          set -euo pipefail
+          result='library/.test/default/intermediates/test/coverage_data/test_result.txt'
+          rm -f "$result"
+
+          hvigorw --no-daemon -c modelVersion=6.1.1 test --mode module \
+            -p module=library@default -p testType=local -p coverage=true
+
+          test -s "$result" || { echo "::error::未生成 $result"; exit 1; }
+
+          # 下限与 scripts/ci/check-invariants.mjs 的 BASELINE.localTestCases 同步维护
+          SUMMARY="$(tail -n 1 "$result")" node -e '
+            const line = process.env.SUMMARY;
+            const matched = /^Tests run: (\d+), Failure: (\d+), Error: (\d+), Pass: (\d+), Ignore: (\d+)$/.exec(line);
+            if (!matched) {
+              console.error(`无法解析测试汇总行：${JSON.stringify(line)}`);
+              process.exit(1);
+            }
+            const [, run, failure, error, pass, ignore] = matched.map(Number);
+            require("node:fs").appendFileSync(
+              process.env.GITHUB_STEP_SUMMARY,
+              `### 单测\n\n\`Tests run: ${run}, Failure: ${failure}, Error: ${error}, Pass: ${pass}, Ignore: ${ignore}\`\n`,
+            );
+            if (failure !== 0 || error !== 0 || pass < 240) {
+              console.error(`本地单测未达预期：Failure=${failure}, Error=${error}, Pass=${pass}`);
+              process.exit(1);
+            }
+          '
+
+      - name: Coverage gate
+        run: |
+          set -euo pipefail
+          REPORT='library/.test/default/outputs/test/reports/coverageReport.json' MIN="$COVERAGE_MIN_LINES" node -e '
+            const fs = require("node:fs");
+            const { summary } = JSON.parse(fs.readFileSync(process.env.REPORT, "utf8"));
+            const min = Number(process.env.MIN);
+            const pct = (k) => `${summary[k].pct}% (${summary[k].covered}/${summary[k].total})`;
+            const line = `lines ${pct("lines")} | functions ${pct("functions")} | branches ${pct("branches")}`;
+            console.log(`覆盖率  ${line}`);
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### 覆盖率\n\n\`${line}\`\n`);
+            if (summary.lines.pct < min) {
+              console.error(`lines 覆盖率 ${summary.lines.pct}% 低于门槛 ${min}%`);
+              process.exit(1);
+            }
+          '
+
+      - name: Build HAR (release)
+        run: |
+          set -euo pipefail
+          hvigorw --no-daemon -c modelVersion=6.1.1 assembleHar --mode module \
+            -p module=library@default -p product=default -p buildMode=release
+
+      - name: Verify HAR contents
+        run: |
+          set -euo pipefail
+          har='library/build/default/outputs/default/library.har'
+          test -f "$har" || { echo "::error::未产出 $har"; exit 1; }
+
+          listing="$RUNNER_TEMP/har-listing.txt"
+          tar -tzf "$har" > "$listing"
+          echo "HAR 条目数：$(wc -l < "$listing" | tr -d ' ')"
+
+          if grep -Eq '^package/src/(test|ohosTest)/' "$listing"; then
+            echo "::error::HAR 内不应包含测试代码"
+            grep -E '^package/src/(test|ohosTest)/' "$listing" | head -20
+            exit 1
+          fi
+          grep -q '^package/Index.d.ets$' "$listing" || { echo "::error::HAR 缺少 package/Index.d.ets"; exit 1; }
+
+      - name: ohpm prepublish (dry run, no publish)
+        run: |
+          set -euo pipefail
+          ohpm prepublish library/build/default/outputs/default/library.har
+
+      - name: Build consumer HAP (smoke)
+        run: |
+          set -euo pipefail
+          hvigorw --no-daemon -c modelVersion=6.1.1 assembleHap --mode module \
+            -p module=entry@default -p product=default
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ohos-otp-ci
+          if-no-files-found: error
+          path: |
+            library/build/default/outputs/default/library.har
+            library/.test/default/intermediates/test/coverage_data/test_result.txt
+            library/.test/default/outputs/test/reports/
+            entry/build/default/outputs/default/*.hap

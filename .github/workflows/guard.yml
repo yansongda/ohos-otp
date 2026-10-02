@@ -1,0 +1,31 @@
+# 仓库不变量守卫：不需要 HarmonyOS SDK，几秒钟跑完。
+#
+# 为什么单独一个 workflow：真构建（ci.yml）要先下载约 2GB 工具链，
+# 把「顺手加个 console.log / 删掉一个用例」这类问题挡在更便宜的一层。
+name: guard
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  invariants:
+    name: repo invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # 零依赖 node 脚本，用 runner 自带 node 即可
+      - name: Check repo invariants
+        run: node scripts/ci/check-invariants.mjs
