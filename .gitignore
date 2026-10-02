@@ -12,3 +12,6 @@
 /.clang-tidy
 **/.test
 /.appanalyzer
+docs/implementation/
+docs/evidence/
+docs/learning/
