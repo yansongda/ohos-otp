@@ -1,5 +1,5 @@
 /**
- * Secret 规范化 / 拷贝语义 / 随机生成 / 脱敏测试（T08）。
+ * Secret 规范化 / 拷贝语义 / 随机生成 / 脱敏测试。
  * 随机生成用例注入 RandomFixture 固定序列，不用真实随机源断言。
  */
 import { describe, it, expect } from '@ohos/hypium';
@@ -25,7 +25,7 @@ function expectThrowsCode(fn: () => void, code: OtpErrorCode): void {
 export default function secretTest() {
   describe('secretTest', () => {
     it('fromBase32_lowercase80bit_belowR6Recommendation', 0, () => {
-      // 10 字节 = 80 bit，低于 RFC 4226 §4 R6 的 128 bit 建议（本库默认不强制，见设计 §3.3）。
+      // 10 字节 = 80 bit，低于 RFC 4226 §4 R6 的 128 bit 建议（本库默认不强制）
       const secret: Secret = Secret.fromBase32('jbswy3dpehpk3pxp');
       expect(secret.byteLength).assertEqual(10);
       expect(secret.bitLength).assertEqual(80);

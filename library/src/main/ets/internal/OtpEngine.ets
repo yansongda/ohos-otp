@@ -1,6 +1,6 @@
 /**
  * 编排层：counter → code 全链路（纯函数，接收注入 provider，kit-free）。
- * 取模只在 Digits.format 内做一次；verify 扫完全部候选后才返回首个命中 delta。
+ * 取模只在 Digits.format 做一次；verify 扫完全部候选后才返回首个命中 delta（恒定时间）。
  */
 import { OtpError, OtpErrorCode } from '../OtpError';
 import { OtpAlgorithm } from '../OtpOptions';
@@ -21,7 +21,7 @@ export function generate(provider: HmacProvider, params: EngineParams, counter: 
   return formatDigits(truncateApply(digest), params.digits);
 }
 
-/** token 必须为纯数字（可空串以外），逐字符校验，避免正则。 */
+/** token 必须为纯数字且非空；逐字符校验，避免正则。 */
 function isNumericToken(token: string): boolean {
   if (token.length === 0) {
     return false;

@@ -1,6 +1,6 @@
 /**
  * RFC 4226 §5.3 动态截断（纯函数，kit-free）。
- * 只做截断（屏蔽最高位，保证 31 位非负整数），不做取模——取模只在 Digits 完成。
+ * 只做截断（屏蔽最高位，得 31 位非负整数）；取模只在 Digits.format 完成。
  */
 import { OtpError, OtpErrorCode } from '../OtpError';
 

@@ -1,7 +1,7 @@
 /**
- * TOTP 公开类 单测（T10）：全部经 HmacFixture 注入，深路径 import，不碰系统能力。
- * 期望值全部来自计划附录 A.3/A.6（黄金向量）；每条断言前先写出 counter/offset 推导。
- * 注意：syncClockOffset 公式为 clockOffsetMs -= delta * period * 1000（设计 §3.2 双场景证明表）。
+ * TOTP 公开类 单测：全部经 HmacFixture 注入，深路径 import，不碰系统能力。
+ * 期望值全部来自黄金向量（RfcVectors.ets）；每条断言前先写出 counter/offset 推导。
+ * 注意：syncClockOffset 公式为 clockOffsetMs -= delta * period * 1000。
  */
 import { describe, it, expect } from '@ohos/hypium';
 import { TOTP } from '../main/ets/TOTP';
@@ -121,7 +121,7 @@ export default function totpTest() {
       expect(new TOTP({ secret: S1, digits: 6 }, fixture).generate(59000)).assertEqual('287082');
     });
 
-    // ── remaining / progress（T06 语义，参照点 s=59,p=30 → 1；s=15,p=30 → 0.5）──
+    // ── remaining / progress（参照点 s=59,p=30 → 1；s=15,p=30 → 0.5）──
     it('remaining_59000', 0, () => {
       // 推导：s=59，period - ((59%30)+30)%30 = 30 - 29 = 1
       expect(new TOTP({ secret: S1 }, fixture).remaining(59000)).assertEqual(1);
@@ -131,7 +131,7 @@ export default function totpTest() {
       expect(new TOTP({ secret: S1 }, fixture).progress(15000)).assertEqual(0.5);
     });
 
-    // ── verify 正例/负例/窗口（T09 同语义，走公开类）──
+    // ── verify 正例/负例/窗口（与 OtpEngine 同语义，走公开类）──
     it('verify_positive_delta0', 0, () => {
       // 推导：timestamp=59000 → counter=floor(59/30)=1，window 缺省 0 → 候选 1；'287082' 命中 → delta 0
       expect(new TOTP({ secret: S1, digits: 6 }, fixture).verify('287082', { timestamp: 59000 })).assertEqual(0);
@@ -156,7 +156,7 @@ export default function totpTest() {
       expect(t.verify('287082', { timestamp: 89000 })).assertEqual(0);
     });
 
-    // ── syncClockOffset 双场景（设计 §3.2 证明表；先推导再断言）──
+    // ── syncClockOffset 双场景（先推导再断言）──
     it('syncClockOffset_scenarioA_fastClock', 0, () => {
       // 场景 A（设备快 30s）：delta=+1 → clockOffsetMs -= 1*30*1000 = -30000。
       //   推导：generate(89000) 有效时间 = 89000 + (-30000) = 59000ms → counter = floor(59/30) = 1 → 6 位码 287082
@@ -199,7 +199,7 @@ export default function totpTest() {
 
     // ── toURI() 逐字断言 + fromURI 往返 ──
     it('toURI_verbatim', 0, () => {
-      // T08 build 惯例：digits=8 显式输出、period 默认 30 省略、algorithm 恒输出
+      // build 惯例：digits=8 显式输出、period 默认 30 省略、algorithm 恒输出
       const uri: string = new TOTP({ secret: S1, digits: 8 }, fixture).toURI();
       expect(uri).assertEqual('otpauth://totp/?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&algorithm=SHA1&digits=8');
     });
@@ -216,7 +216,7 @@ export default function totpTest() {
       }, OtpErrorCode.UNSUPPORTED_OTPAUTH_TYPE);
     });
 
-    // ── 构造期即抛错（设计 §3.3 统一约束）──
+    // ── 构造期即抛错（统一约束）──
     it('ctor_digits5_throws', 0, () => {
       expectThrowsCode(() => { new TOTP({ secret: S1, digits: 5 }, fixture); }, OtpErrorCode.INVALID_DIGITS);
     });

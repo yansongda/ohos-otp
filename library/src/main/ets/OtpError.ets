@@ -1,6 +1,6 @@
 /**
  * 统一错误模型：错误码枚举（17 个，字符串值）+ OtpError。
- * 消息文案固定，绝不包含 secret/token/密钥等用户输入。
+ * 消息文案固定，绝不包含 secret/token/派生密钥等用户输入。
  */
 export enum OtpErrorCode {
   EMPTY_SECRET = 'EMPTY_SECRET',
@@ -22,9 +22,7 @@ export enum OtpErrorCode {
   NOT_IMPLEMENTED = 'NOT_IMPLEMENTED'
 }
 
-/**
- * 统一错误类：调用方可通过 code 精确分支处理。
- */
+/** 统一错误类：调用方可通过 code 精确分支处理。 */
 export class OtpError extends Error {
   readonly code: OtpErrorCode;
 

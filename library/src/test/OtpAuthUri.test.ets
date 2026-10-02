@@ -1,6 +1,6 @@
 /**
- * OTPAuthURI 解析 / 生成 / round-trip 测试（T08）。
- * 解析与生成遵循 Google Authenticator Key URI Format（设计 §3.4）。
+ * OTPAuthURI 解析 / 生成 / round-trip 测试。
+ * 解析与生成遵循 Google Authenticator Key URI Format（IANA Provisional #13829）。
  */
 import { describe, it, expect } from '@ohos/hypium';
 import { OTPAuthURI } from '../main/ets/OTPAuthURI';

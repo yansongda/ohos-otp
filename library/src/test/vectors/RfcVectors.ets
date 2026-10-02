@@ -1,5 +1,5 @@
 /**
- * RFC 4226/6238 黄金向量（唯一来源，逐字照抄计划附录 A，禁止改值、禁止补算）。
+ * RFC 4226/6238 黄金向量（全库唯一来源，禁止改值、禁止补算）。
  * 本文件仅供测试使用（fixture 装表 + 期望值断言），kit-free。
  */
 
@@ -92,7 +92,7 @@ export const RFC6238_SHA512: Rfc6238Vector[] = [
   { timeSec: 20000000000, counter: 666666666, counterHex: '0000000027bc86aa', digestHex: '562298a02af13e7522127adee3dc6678d53669ca2b7016186968f9a9c14f51d1e7098ba91293a01b5f3bab4207a2af5ce332a45f2c2ff2b9885aa42ff61cb426', code8: '47863826' }
 ];
 
-/** A.4 边界 counter（RFC 6238 §4.2「T 必须支持超过 32 位」，3 条 × 三算法）。 */
+/** 边界 counter（RFC 6238 §4.2「T 必须支持超过 32 位」，3 条 × 三算法）。 */
 export const BOUNDARY_COUNTERS: BoundaryVector[] = [
   {
     counter: 4294967296,
@@ -147,7 +147,7 @@ export interface Seeds {
   SHA512_BASE32: string;
 }
 
-/** A.1 seed（三算法 ASCII 字节串 + 等价 base32 规范形，供 T11 走公开 API 用）。 */
+/** seed（三算法 ASCII 字节串 + 等价 base32 规范形，供设备端用例走公开 API）。 */
 export const SEEDS: Seeds = {
   SHA1: '12345678901234567890',
   SHA256: '12345678901234567890123456789012',

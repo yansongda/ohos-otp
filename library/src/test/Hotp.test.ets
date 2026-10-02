@@ -1,6 +1,6 @@
 /**
- * HOTP 公开类 单测（T10）：全部经 HmacFixture 注入，深路径 import，不碰系统能力。
- * 期望值全部来自计划附录 A.2/A.6（黄金向量）；每条断言前先写 counter/码 推导。
+ * HOTP 公开类 单测：全部经 HmacFixture 注入，深路径 import，不碰系统能力。
+ * 期望值全部来自黄金向量（RfcVectors.ets）；每条断言前先写 counter/码 推导。
  */
 import { describe, it, expect } from '@ohos/hypium';
 import { HOTP } from '../main/ets/HOTP';
@@ -74,7 +74,7 @@ export default function hotpTest() {
       expect(new HOTP({ secret: SECRET, digits: 7, counter: 1 }, fixture).generate()).assertEqual('4287082');
     });
 
-    // ── toURI() 逐字断言（T08 build 惯例：digits 默认 6 省略、HOTP 恒输出 counter）──
+    // ── toURI() 逐字断言（build 惯例：digits 默认 6 省略、HOTP 恒输出 counter）──
     it('toURI_verbatim', 0, () => {
       const uri: string = new HOTP({ secret: SECRET, counter: 0 }, fixture).toURI();
       expect(uri).assertEqual('otpauth://hotp/?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&algorithm=SHA1&counter=0');
@@ -89,7 +89,7 @@ export default function hotpTest() {
       expect(restored.generate()).assertEqual('94287082');
     });
 
-    // ── verify 正例/窗口/负例（窗口单位=步=1 counter，与 T09 同语义）──
+    // ── verify 正例/窗口/负例（窗口单位=步=1 counter，与 OtpEngine 同语义）──
     it('verify_positive_delta0', 0, () => {
       // 构造 counter=1、window 缺省 0 → 候选 counter=1，'287082' 命中 → delta 0
       expect(new HOTP({ secret: SECRET, counter: 1 }, fixture).verify('287082')).assertEqual(0);
@@ -103,7 +103,7 @@ export default function hotpTest() {
       expect(new HOTP({ secret: SECRET, counter: 1 }, fixture).verify('755224')).assertEqual(null);
     });
 
-    // ── 构造期即抛错（设计 §3.3 统一约束）──
+    // ── 构造期即抛错（统一约束）──
     it('ctor_digits5_throws', 0, () => {
       // digits 仅允许 6/7/8，5 非法 → INVALID_DIGITS
       expectThrowsCode(() => { new HOTP({ secret: SECRET, digits: 5 }, fixture); }, OtpErrorCode.INVALID_DIGITS);

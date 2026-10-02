@@ -1,9 +1,6 @@
 /**
- * TOTP（RFC 6238）公开类。
- *
- * 本文件禁止 import kit（kit-free）；
- * 默认 provider 经 internal/HmacProvider 的 requireHmac() 取用。
- * 所有时间入口统一叠加 clockOffsetMs（显式传入时间戳时也叠加）。
+ * TOTP（RFC 6238）公开类。kit-free：默认 provider 经 requireHmac() 取用。
+ * 所有时间入口（含显式传入 timestamp）统一叠加 clockOffsetMs。
  */
 import { OtpError, OtpErrorCode } from './OtpError';
 import { OtpAlgorithm, OtpType, TotpOptions, VerifyOptions } from './OtpOptions';
@@ -25,9 +22,7 @@ export class TOTP {
   private readonly _issuer: string | undefined;
   private readonly _account: string | undefined;
 
-  /**
-   * @internal 仅供测试注入
-   */
+  /** @internal 仅供测试注入 */
   constructor(options: TotpOptions, provider?: HmacProvider) {
     const secret: Secret = Secret.fromBase32(options.secret);
     const algorithm: OtpAlgorithm = options.algorithm === undefined ? OtpAlgorithm.SHA1 : options.algorithm;
@@ -73,9 +68,7 @@ export class TOTP {
     return (timestampMs === undefined ? Date.now() : timestampMs) + this._clockOffsetMs;
   }
 
-  /**
-   * 生成验证码；timestampMs 缺省当前时刻。
-   */
+  /** 生成验证码；timestampMs 缺省当前时刻。 */
   generate(timestampMs?: number): string {
     const ts: number = this.effectiveTs(timestampMs);
     return engineGenerate(this._provider, this.params(), timeStepStep(ts, this._t0, this._period));
@@ -93,25 +86,20 @@ export class TOTP {
     return engineVerify(this._provider, this.params(), token, counter, window);
   }
 
-  /**
-   * 当前窗口剩余整秒，取值 [1, period]。
-   */
+  /** 当前窗口剩余整秒 [1, period]。 */
   remaining(timestampMs?: number): number {
     return remainingSec(this.effectiveTs(timestampMs), this._t0, this._period);
   }
 
-  /**
-   * 当前窗口进度 [0, 1)。
-   */
+  /** 当前窗口进度 [0, 1)，供环形进度条。 */
   progress(timestampMs?: number): number {
     return timeStepProgress(this.effectiveTs(timestampMs), this._t0, this._period);
   }
 
   /**
-   * 时钟偏移校准（单参数，单位=时间步）。
-   * clockOffsetMs -= delta * period * 1000；符号依据设计 §3.2 双场景证明表：
-   * delta=+1（码来自下一步 → 设备时钟快）→ offset 变负。
-   * delta 必须为整数，否则 INVALID_WINDOW。
+   * 时钟偏移校准（单参数，单位=时间步）：clockOffsetMs -= delta * period * 1000。
+   * delta 取自 verify 的返回值；delta=+1（码来自下一步 → 设备时钟快）→ offset 变负。
+   * delta 必须为整数，否则抛 INVALID_WINDOW。
    */
   syncClockOffset(delta: number): void {
     if (!Number.isInteger(delta)) {
@@ -120,16 +108,12 @@ export class TOTP {
     this._clockOffsetMs -= delta * this._period * 1000;
   }
 
-  /**
-   * 当前时钟偏移（毫秒）。
-   */
+  /** 当前时钟偏移（毫秒）。 */
   get clockOffsetMs(): number {
     return this._clockOffsetMs;
   }
 
-  /**
-   * 输出规范 otpauth://totp/ URI。
-   */
+  /** 输出规范 otpauth://totp/ URI。 */
   toURI(): string {
     return OTPAuthURI.build({
       type: OtpType.TOTP,
@@ -142,9 +126,7 @@ export class TOTP {
     });
   }
 
-  /**
-   * 从 otpauth URI 构造；URI 类型非 totp（如 hotp）抛 UNSUPPORTED_OTPAUTH_TYPE。
-   */
+  /** 从 otpauth URI 构造；URI 类型非 totp（如 hotp）抛 UNSUPPORTED_OTPAUTH_TYPE。 */
   static fromURI(uri: string): TOTP {
     const params = OTPAuthURI.parse(uri);
     if (params.type !== OtpType.TOTP) {

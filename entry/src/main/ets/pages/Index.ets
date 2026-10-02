@@ -1,10 +1,9 @@
 import { TOTP, OtpError } from '@yansongda/otp';
 
 /**
- * 消费方 smoke demo：演示 entry 消费 @yansongda/otp 的 TOTP 算码能力。
- * secret 为文档公开示例值（JBSWY3DPEHPK3PXP，非真实密钥）；
- * 经 barrel 导入即自动注册默认 crypto provider，消费者零配置即可 new TOTP()。
- * 失败场景：构造/算码/校验抛出的 OtpError 按 code 分支展示，不崩溃。
+ * 消费方 smoke demo：entry 经 barrel 消费 @yansongda/otp 的 TOTP 算码能力。
+ * secret 为文档公开示例值（JBSWY3DPEHPK3PXP，非真实密钥）；经 barrel 导入即自动注册默认 provider。
+ * 失败场景：OtpError 按 code 分支展示，不崩溃。
  */
 @Entry
 @Component
@@ -57,7 +56,7 @@ struct Index {
       return;
     }
     try {
-      // window=1：允许前后各 1 个时间步的漂移；命中返回 delta（单位=时间步），未命中返回 null
+      // window=1：允许前后各 1 步漂移；命中返回 delta（单位=时间步），未命中 null
       const delta = this.totp.verify(this.code, { window: 1 });
       if (delta === null) {
         this.deltaText = '未命中窗口（返回 null）';

@@ -1,6 +1,6 @@
 /**
  * 编排引擎 单测：全部经 HmacFixture 注入，不碰系统能力。
- * 期望值全部来自计划附录 A（黄金向量），逐条与附录 A 比对；
+ * 期望值全部来自黄金向量（RfcVectors.ets），逐条比对；
  * 派生量（如 step(timeSec*1000,0,30)）在断言前写出推导。
  */
 import { describe, it, expect } from '@ohos/hypium';

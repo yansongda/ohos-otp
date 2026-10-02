@@ -1,6 +1,6 @@
 /**
  * Truncate 动态截断测试。
- * 期望值（Truncate 原始值）逐字照抄执行计划附录 A.2 第 4 列（RFC 4226 Appendix D 的权威中间值），
+ * 期望值（Truncate 原始值）取自 RFC 4226 Appendix D 的权威中间值，逐字照抄，
  * 禁止用 digest 自行推导（推导会与被测实现同源，变成自证）。
  */
 import { describe, it, expect } from '@ohos/hypium';

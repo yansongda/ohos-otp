@@ -40,7 +40,7 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
 export default function base32Test() {
   describe('base32Test', () => {
     it('decodeRfcSecret_20Bytes', 0, () => {
-      // 附录 A.1 SHA1 seed 的 base32 规范形：20 字节，'1'=49 … '0'=48。
+      // SHA1 seed（ASCII '1'…'0'）的 base32 规范形：20 字节，'1'=49 … '0'=48。
       const bytes: Uint8Array = decode('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ');
       expect(bytes.length).assertEqual(20);
       expect(bytes[0]).assertEqual(49);
@@ -100,13 +100,13 @@ export default function base32Test() {
     });
 
     it('encodeDecodeRoundTrip_RfcVector', 0, () => {
-      // 附录 A.1 SHA1 seed：decode 后再 encode 必须还原规范形。
+      // SHA1 seed：decode 后再 encode 必须还原规范形。
       const encoded: string = encode(decode('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'));
       expect(encoded).assertEqual('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ');
     });
 
     it('sha256SeedRoundTrip', 0, () => {
-      // 附录 A.1 SHA256 seed：32 字节 ASCII ↔ base32 规范形。
+      // SHA256 seed：32 字节 ASCII ↔ base32 规范形。
       const seed: Uint8Array = asciiBytes('12345678901234567890123456789012');
       const b32: string = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA';
       expect(encode(seed)).assertEqual(b32);
@@ -114,7 +114,7 @@ export default function base32Test() {
     });
 
     it('sha512SeedRoundTrip', 0, () => {
-      // 附录 A.1 SHA512 seed：64 字节 ASCII ↔ base32 规范形。
+      // SHA512 seed：64 字节 ASCII ↔ base32 规范形。
       const seed: Uint8Array = asciiBytes(
         '1234567890123456789012345678901234567890123456789012345678901234');
       const b32: string =

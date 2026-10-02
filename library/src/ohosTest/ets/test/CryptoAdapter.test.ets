@@ -1,10 +1,9 @@
 /**
  * 设备端真实 crypto 验证（ohosTest / JsUnit）。
  *
- * 本套件是分支 B（PC 本地 crypto 返回空数据）下，真实 cryptoFramework 与
+ * Local Test 环境 crypto 返回空数据，本套件是真实 cryptoFramework 与
  * barrel 注册链路的唯一覆盖点：全部用例走默认 provider，不注入任何 fixture。
- * 期望值逐字照抄计划附录 A（A.1 seed base32 规范形 / A.2 RFC 4226 / A.3 RFC 6238），
- * 禁止自行推导或临时拼装。
+ * 期望值来自 RFC 官方附录（RFC 4226 Appendix D / RFC 6238 Appendix B），禁止自行推导或临时拼装。
  *
  * barrel（模块根 Index.ets）在模块加载期执行 installCryptoDefaults()，
  * 因此本套件所有「不注入 provider」的公开类调用即是对注册链路的真实验证。
@@ -17,12 +16,12 @@ import { TOTP } from '../../../main/ets/TOTP';
 import { CryptoFrameworkHmac } from '../../../main/ets/internal/CryptoSource';
 import { TOTP as BarrelTOTP } from '../../../../Index.ets';
 
-// ── A.1 seed 的 base32 规范形（照抄计划附录 A，逐字，不得改动）──
+// ── seed 的 base32 规范形（RFC 官方 seed 串，逐字，不得改动）──
 const SHA1_B32: string = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
 const SHA256_B32: string = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA';
 const SHA512_B32: string = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA';
 
-/** A.5 对照表 counter=1 的 8 字节大端 message（0000000000000001）。 */
+/** counter=1 的 8 字节大端 message（0000000000000001）。 */
 const MSG_COUNTER_1: Uint8Array = new Uint8Array([0, 0, 0, 0, 0, 0, 0, 1]);
 
 /** 字节数组 → 小写 hex（用于 digest 断言）。 */

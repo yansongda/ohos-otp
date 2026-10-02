@@ -1,8 +1,5 @@
 /**
- * HOTP（RFC 4226）公开类。
- *
- * 本文件禁止 import kit（kit-free）；
- * 默认 provider 经 internal/HmacProvider 的 requireHmac() 取用。
+ * HOTP（RFC 4226）公开类。kit-free：默认 provider 经 requireHmac() 取用。
  */
 import { OtpError, OtpErrorCode } from './OtpError';
 import { HotpOptions, OtpAlgorithm, OtpType, VerifyOptions } from './OtpOptions';
@@ -22,9 +19,7 @@ export class HOTP {
   private readonly _issuer: string | undefined;
   private readonly _account: string | undefined;
 
-  /**
-   * @internal 仅供测试注入
-   */
+  /** @internal 仅供测试注入 */
   constructor(options: HotpOptions, provider?: HmacProvider) {
     const secret: Secret = Secret.fromBase32(options.secret);
     const algorithm: OtpAlgorithm = options.algorithm === undefined ? OtpAlgorithm.SHA1 : options.algorithm;
@@ -55,9 +50,7 @@ export class HOTP {
     return { algorithm: this._algorithm, digits: this._digits, key: this._secret.bytes };
   }
 
-  /**
-   * 生成验证码；counter 缺省用构造值。
-   */
+  /** 生成验证码；counter 缺省用构造值。 */
   generate(counter?: number): string {
     const c: number = counter === undefined ? this._counter : counter;
     return engineGenerate(this._provider, this.params(), c);
@@ -65,7 +58,7 @@ export class HOTP {
 
   /**
    * 恒定时间比对；counter 缺省用构造值、window 缺省 0。
-   * 返回命中 counter 相对当前步的偏移（步=1），未命中 null。
+   * 返回命中 counter 相对基准的偏移（步=1），未命中 null。
    */
   verify(token: string, options?: VerifyOptions): number | null {
     const c: number = options === undefined || options.counter === undefined ? this._counter : options.counter;
@@ -73,9 +66,7 @@ export class HOTP {
     return engineVerify(this._provider, this.params(), token, c, window);
   }
 
-  /**
-   * 输出规范 otpauth://hotp/ URI。
-   */
+  /** 输出规范 otpauth://hotp/ URI。 */
   toURI(): string {
     return OTPAuthURI.build({
       type: OtpType.HOTP,
@@ -88,9 +79,7 @@ export class HOTP {
     });
   }
 
-  /**
-   * 从 otpauth URI 构造；URI 类型非 hotp（如 totp）抛 UNSUPPORTED_OTPAUTH_TYPE。
-   */
+  /** 从 otpauth URI 构造；URI 类型非 hotp（如 totp）抛 UNSUPPORTED_OTPAUTH_TYPE。 */
   static fromURI(uri: string): HOTP {
     const params = OTPAuthURI.parse(uri);
     if (params.type !== OtpType.HOTP) {

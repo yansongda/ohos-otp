@@ -86,7 +86,7 @@ export function buildRfcFixture(): HmacFixture {
     put(OtpAlgorithm.SHA256, v.counter, v.sha256.digest);
     put(OtpAlgorithm.SHA512, v.counter, v.sha512.digest);
   }
-  // A.6 第 1 行：SHA256 / counter=0（T10 fromURI 用例走 period=60 → counter=0 需要此条）
+  // SHA256 / counter=0（fromURI 用例 period=60 → counter=0 需要此条）
   put(OtpAlgorithm.SHA256, 0, SHA256_C0_DIGEST);
 
   return new HmacFixture(table);

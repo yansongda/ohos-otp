@@ -1,6 +1,6 @@
 /**
  * Digits 取模 + 左补零位数格式化测试。
- * 期望值来自执行计划附录 A.2/A.6 的权威码值（取模于 10^digits 后左补零），照抄，不自行推导。
+ * 期望值为权威码值（取模于 10^digits 后左补零），逐字照抄，禁止自行推导。
  */
 import { describe, it, expect } from '@ohos/hypium';
 import { format, isValidDigits } from '../main/ets/internal/Digits';

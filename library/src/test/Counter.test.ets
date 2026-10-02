@@ -1,6 +1,6 @@
 /**
  * Counter 整数原语测试。
- * 期望值逐字照抄执行计划附录 A.5（counterToBytes 对照表，与 writeBigUInt64BE 参考实现逐位一致），禁止自行推导。
+ * 期望值取自 counterToBytes 对照表（已与 writeBigUInt64BE 参考实现逐位一致），逐字照抄，禁止自行推导。
  */
 import { describe, it, expect } from '@ohos/hypium';
 import { toBytes, isSafeCounter } from '../main/ets/internal/Counter';

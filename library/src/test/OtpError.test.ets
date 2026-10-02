@@ -1,6 +1,6 @@
 /**
- * OtpError 错误模型测试（T08）：instanceof 双真 + 17 个枚举成员逐一断言（防枚举改动）。
- * 若 instanceof OtpError 断言失败，按 Executor rule 1 作为设计性偏差上报，不静默改设计。
+ * OtpError 错误模型测试：instanceof 双真 + 17 个枚举成员逐一断言（防枚举改动）。
+ * 若 instanceof OtpError 断言失败，属设计性偏差，须停下上报，不静默改设计。
  */
 import { describe, it, expect } from '@ohos/hypium';
 import { OtpError, OtpErrorCode } from '../main/ets/OtpError';

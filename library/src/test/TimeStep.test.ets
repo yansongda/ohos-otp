@@ -1,6 +1,6 @@
 /**
  * 时间步/剩余秒/进度/恒定时间比较 单测。
- * 期望值来自设计 §3.3 参照点表；每条断言前先写出 s = floor(ms/1000) 的推导。
+ * 期望值为 RFC 6238 §4.2 公式的直接推论；每条断言前先写出 s = floor(ms/1000) 的推导。
  */
 import { describe, it, expect } from '@ohos/hypium';
 import { step, remainingSec, progress, constantTimeEquals } from '../main/ets/internal/TimeStep';

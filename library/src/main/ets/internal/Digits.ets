@@ -1,6 +1,6 @@
 /**
- * 取模 + 左补零位数格式化（纯函数，kit-free）。
- * 左补零用逐字符前置 '0' 实现，不依赖运行时字符串补位 API（规避 ArkTS 兼容性不确定性）。
+ * 取模 + 左补零格式化（纯函数，kit-free）。
+ * 取模是本库唯一发生点；补零用逐字符前置 '0'，规避 ArkTS 字符串补位 API 的可用性不确定性。
  */
 import { OtpError, OtpErrorCode } from '../OtpError';
 
