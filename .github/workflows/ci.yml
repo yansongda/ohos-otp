@@ -10,6 +10,14 @@
 #     的 sha256 钉死——镜像内容变化必然让 CI 失败。
 #     ⚠️ 首次启用建议：用你自己的华为账号下载同版本 command-line-tools，人工比对一次 sha256。
 #  3. `ohpm publish` / `git push` 一律不在 CI 里执行（AGENTS.md §7 的人工闸门）。
+#
+# 为什么跑在 macOS 而不是 Linux（2026-10-03 实测，run 37025896902）：
+#   `hvigorw test -p testType=local` 会用 SDK 里的 **Previewer**（ArkUI 图形进程）跑用例：
+#   实测进程行为 `.../previewer/common/bin/Previewer -d -abp .test/testability/TestAbility.abc
+#   -ilt true ... -device phone -shape rect -or 1080 2340`。Linux 托管 runner 没有 X/GL，
+#   Previewer 启动即永久阻塞（该次 run 在 `UnitTestArkTS` 编译成功后静默挂到 60 分钟被 kill）。
+#   macOS runner 具备窗口服务，同一 CLI 版本已由 didi/dimina 跑通 `hvigorw test -p coverage=true`。
+#   公开仓库使用标准托管 runner 免费，因此没有理由为省成本留在 Linux。
 name: ci
 
 on:
@@ -37,9 +45,9 @@ jobs:
   build-and-test:
     name: codeLinter + local tests + HAR
 
-    # 若 Linux 上 `hvigorw test -p testType=local` 出现问题，把这里改成 macos-15 即可：
-    # macOS/ARM64 的归档名与 sha256 已经在下面的 Resolve 步骤里备好。
-    runs-on: ubuntu-latest
+    # 必须是 macos-15 及以上的 ARM64：原因见文件头「为什么跑在 macOS」那段（local test 要起 Previewer）。
+    # 若将来要在 Linux 上跑，需要 `xvfb-run -a` + mesa GL —— 未验证，不建议直接切回去。
+    runs-on: macos-15
 
     timeout-minutes: 60
 
@@ -82,6 +90,8 @@ jobs:
               exit 1
               ;;
           esac
+          # 备注：Linux 分支目前不会被走到（本 job 固定在 macos-15），保留它是为了将来做
+          # 带 xvfb 的 Linux 实验时无需再查一遍归档名与哈希。
 
       - name: Cache toolchain
         id: toolchain-cache
@@ -92,6 +102,7 @@ jobs:
 
       - name: Install toolchain
         if: steps.toolchain-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 25
         env:
           ARCHIVE: ${{ steps.toolchain.outputs.archive }}
           ARCHIVE_SHA256: ${{ steps.toolchain.outputs.sha256 }}
@@ -163,6 +174,11 @@ jobs:
           echo "DEVECO_SDK_HOME=$DEVECO_SDK_HOME"
           cat "$DEVECO_SDK_HOME/default/sdk-pkg.json" || true
 
+          # local test 依赖 Previewer，提前断言它的存在，避免到测试步骤才排障
+          previewer="$OHOS_NDK_HOME/previewer/common/bin/Previewer"
+          test -x "$previewer" || { echo "::error::缺少 Previewer：$previewer"; ls -la "$OHOS_NDK_HOME/previewer" 2>/dev/null || true; exit 1; }
+          echo "Previewer OK: $previewer"
+
       - name: Cache ohpm store
         uses: actions/cache@v6
         with:
@@ -172,19 +188,21 @@ jobs:
             ohpm-${{ runner.os }}-
 
       - name: Install ohpm dependencies
+        timeout-minutes: 10
         run: |
           set -euo pipefail
           ohpm config set registry https://ohpm.openharmony.cn/ohpm/
           ohpm install --all
 
       - name: Run CodeLinter
+        timeout-minutes: 10
         run: |
           set -euo pipefail
           bin="$(command -v codelinter || true)"
           if [ -z "$bin" ]; then
-            bin="$(find "$HOME/.harmony-cli/$CLI_VERSION" -maxdepth 5 -type f -name codelinter -perm -u+x 2>/dev/null | head -n 1 || true)"
+            bin="$(find "$HOME/.harmony-cli/$CLI_VERSION" -maxdepth 6 -type f -name 'codelinter' 2>/dev/null | head -n 1 || true)"
           fi
-          if [ -z "$bin" ]; then
+          if [ -z "$bin" ] || [ ! -x "$bin" ]; then
             echo "::error::工具链里没找到 codelinter 可执行文件"
             find "$HOME/.harmony-cli/$CLI_VERSION" -maxdepth 3 -type d | head -40
             exit 1
@@ -207,13 +225,17 @@ jobs:
           '
 
       - name: Local unit tests with coverage
+        # 防挂死：local test 会启动 Previewer，一旦环境不满足图形栈要求，它会静默阻塞直到
+        # 这里的超时才失败（2026-10-03 的首次 run 就是这样被 60 分钟 job 超时 kill 的）
+        timeout-minutes: 15
         run: |
           set -euo pipefail
           result='library/.test/default/intermediates/test/coverage_data/test_result.txt'
           rm -f "$result"
 
+          # --no-parallel：与 didi/dimina 已验证的命令一致，避免并发拉起第二个 Previewer
           hvigorw --no-daemon -c modelVersion=6.1.1 test --mode module \
-            -p module=library@default -p testType=local -p coverage=true
+            -p module=library@default -p testType=local -p coverage=true --no-parallel
 
           test -s "$result" || { echo "::error::未生成 $result"; exit 1; }
 
@@ -254,6 +276,7 @@ jobs:
           '
 
       - name: Build HAR (release)
+        timeout-minutes: 15
         run: |
           set -euo pipefail
           hvigorw --no-daemon -c modelVersion=6.1.1 assembleHar --mode module \
@@ -282,6 +305,7 @@ jobs:
           ohpm prepublish library/build/default/outputs/default/library.har
 
       - name: Build consumer HAP (smoke)
+        timeout-minutes: 15
         run: |
           set -euo pipefail
           hvigorw --no-daemon -c modelVersion=6.1.1 assembleHap --mode module \

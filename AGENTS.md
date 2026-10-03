@@ -64,7 +64,7 @@ bash scripts/ci/lint-local.sh          # CodeLinter；exit 4 = 命中 error，0 
 node scripts/ci/check-invariants.mjs   # 仓库不变量守卫（9 项）
 ```
 
-**CI（GitHub Actions）**：`guard.yml` = 不变量守卫（ubuntu-latest，无 SDK，秒级）；`ci.yml` = CodeLinter + PC 单测（覆盖率门槛 88%）+ `assembleHar` + `ohpm prepublish` + entry HAP smoke，产物含 `library.har` 与覆盖率报告。工具链取自社区镜像的华为 command-line-tools（`CLI_VERSION` 与归档 sha256 钉在 workflow 里，升级走显式 PR）；本地无 SDK 时用上面两条脚本 + `bash scripts/ci/lint-local.sh` 复现 lint 与守卫。**CI 不执行 `ohpm publish` / `git push`**（§7 人工闸门）。
+**CI（GitHub Actions）**：`guard.yml` = 不变量守卫（ubuntu-latest，无 SDK，秒级）；`ci.yml` = CodeLinter + PC 单测（覆盖率门槛 88%）+ `assembleHar` + `ohpm prepublish` + entry HAP smoke，产物含 `library.har` 与覆盖率报告。工具链取自社区镜像的华为 command-line-tools（`CLI_VERSION` 与归档 sha256 钉在 workflow 里，升级走显式 PR）；**跑在 `macos-15`，因为 local test 要起 Previewer（见 §8）**。本地无 SDK 时用上面两条脚本 + `bash scripts/ci/lint-local.sh` 复现 lint 与守卫。**CI 不执行 `ohpm publish` / `git push`**（§7 人工闸门）。
 
 **hvigor 并发**：同一时刻只跑一个 hvigor 任务（工程级锁），并行 agent 需串行放行。
 
@@ -112,3 +112,4 @@ node scripts/ci/check-invariants.mjs   # 仓库不变量守卫（9 项）
 - HAR 模块的 ohosTest 打包可能报 `--resources-path is invalid`（工程级限制）；设备用例优先走 DevEco IDE。
 - `hdc` 不在 PATH，用上面的绝对路径。
 - CodeLinter 两种入口：华为 command-line-tools 的 `codelinter`，或 DevEco 内置引擎 `<DevEco>/Contents/plugins/codelinter/run/index.js`（`scripts/ci/lint-local.sh` 会自动二选一）。三个坑：**不带 `-e` 时无论多少缺陷都返回 0**；lint 路径必须在工程目录内；工程根必须有 `hvigorfile.ts`，否则报 `The entered inspection path is incorrect`。
+- **`hvigorw test -p testType=local` 会启动 SDK 里的 Previewer（ArkUI 图形进程）来跑用例**，实测命令行：`<SDK>/default/openharmony/previewer/common/bin/Previewer -d -abp .test/testability/TestAbility.abc -ilt true ... -device phone -shape rect -or 1080 2340`。所以：没有图形栈的环境（如 Linux 托管 runner）会静默挂住直到超时（2026-10-02 run 37025896902 就是这样卡到 60 分钟被 kill）；本地无 GUI 的 Linux 机器同样跑不了。CI 因此跑在 `macos-15`。
