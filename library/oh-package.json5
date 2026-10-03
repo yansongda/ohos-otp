@@ -4,7 +4,8 @@
   "description": "RFC 4226/6238 compliant HOTP and TOTP library for ArkTS (SHA1/SHA256/SHA512, OTPAuth URI, drift window)",
   "main": "Index.ets",
   "author": {
-    "name": "yansongda"
+    "name": "yansongda",
+    "url": "https://yansongda.cn"
   },
   "license": "MIT",
   "repository": "https://github.com/yansongda/ohos-otp",
