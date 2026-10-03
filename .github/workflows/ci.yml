@@ -114,15 +114,12 @@ jobs:
           work="$RUNNER_TEMP/$ARCHIVE"
           mkdir -p "$install_root"
 
-          if [ "$KIND" = 'zip' ]; then
-            curl --fail --location --retry 3 --retry-all-errors --output "$work" "$base"
-          else
-            # 分片存放，必须拼接后再校验（校验的是合并后的归档）
-            curl --fail --location --retry 3 --retry-all-errors --output "$work.aa" "$base.aa"
-            curl --fail --location --retry 3 --retry-all-errors --output "$work.ab" "$base.ab"
-            cat "$work.aa" "$work.ab" > "$work"
-            rm -f "$work.aa" "$work.ab"
-          fi
+          # 镜像只发布分片（.aa/.ab）与对应的 .sha256，没有合并后的整包：先拼接再校验
+          # （2026-10-03 首次 macOS run 就是直接拉整包吃了 404：ohos-sdk-mac-arm64.zip）
+          curl --fail --location --retry 3 --retry-all-errors --output "$work.aa" "$base.aa"
+          curl --fail --location --retry 3 --retry-all-errors --output "$work.ab" "$base.ab"
+          cat "$work.aa" "$work.ab" > "$work"
+          rm -f "$work.aa" "$work.ab"
 
           actual="$( { shasum -a 256 "$work" 2>/dev/null || sha256sum "$work"; } | awk '{print $1}' )"
           if [ "$actual" != "$ARCHIVE_SHA256" ]; then
