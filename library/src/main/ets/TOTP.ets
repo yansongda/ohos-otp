@@ -5,7 +5,7 @@
 import { OtpError, OtpErrorCode } from './OtpError';
 import { OtpAlgorithm, OtpType, TotpOptions, VerifyOptions } from './OtpOptions';
 import { HmacProvider, requireHmac } from './internal/HmacProvider';
-import { isValidDigits } from './internal/Digits';
+import { isValidDigits, isValidAlgorithm } from './internal/Digits';
 import { generate as engineGenerate, verify as engineVerify, EngineParams } from './internal/OtpEngine';
 import { step as timeStepStep, remainingSec, progress as timeStepProgress } from './internal/TimeStep';
 import { Secret } from './Secret';
@@ -36,6 +36,9 @@ export class TOTP {
 
     if (!isValidDigits(digits)) {
       throw new OtpError(OtpErrorCode.INVALID_DIGITS, 'INVALID_DIGITS');
+    }
+    if (!isValidAlgorithm(algorithm)) {
+      throw new OtpError(OtpErrorCode.INVALID_ALGORITHM, 'INVALID_ALGORITHM');
     }
     if (!Number.isInteger(period) || period <= 0) {
       throw new OtpError(OtpErrorCode.INVALID_PERIOD, 'INVALID_PERIOD');
@@ -99,15 +102,17 @@ export class TOTP {
   }
 
   /**
-   * 时钟偏移校准（单参数，单位=时间步）：clockOffsetMs -= delta * period * 1000。
-   * delta 取自 verify 的返回值；delta=+1（码来自下一步 → 设备时钟快）→ offset 变负。
-   * delta 必须为整数，否则抛 INVALID_WINDOW。
+   * 时钟偏移校准(单参数,单位=时间步):clockOffsetMs += delta * period * 1000。
+   * delta = token 所在 counter − 本地 base counter(verify 返回值);delta>0 表示码源时钟
+   * 领先(本地慢),校准把本地 effectiveTs 向码源对齐(offset 变正)。
+   * 闭环不变量:verify(token,w) 命中 delta 后,syncClockOffset(delta) 使同一时刻的
+   * verify(token,0) 命中 delta=0(依据 RFC 6238 §6 "adjusted with the recorded drift")。
    */
   syncClockOffset(delta: number): void {
     if (!Number.isInteger(delta)) {
       throw new OtpError(OtpErrorCode.INVALID_WINDOW, 'INVALID_WINDOW');
     }
-    this._clockOffsetMs -= delta * this._period * 1000;
+    this._clockOffsetMs += delta * this._period * 1000;
   }
 
   /** 当前时钟偏移（毫秒）。 */
