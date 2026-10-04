@@ -182,8 +182,10 @@ export class OTPAuthURI {
    * 由 OtpAuthParams 生成规范 URI。参数顺序固定：secret, issuer, algorithm, digits, period|counter。
    * label 形如 issuer:account（两者百分号编码、冒号保留，为空则省略）；algorithm 始终输出，
    * digits 仅 != 6、period 仅 TOTP 且 != 30 时输出（与 GA 二维码惯例一致），HOTP 始终输出 counter。
+   * secret 先经 Base32 规范化（与 parse 对称）；非法 base32 抛对应错误码。
    */
   static build(params: OtpAuthParams): string {
+    const secret: string = encode(decode(params.secret));
     const type: string = params.type === OtpType.TOTP ? 'totp' : 'hotp';
     const issuer: string = params.issuer === undefined ? '' : params.issuer;
     const account: string = params.account === undefined ? '' : params.account;
@@ -201,7 +203,7 @@ export class OTPAuthURI {
     }
 
     const parts: string[] = [];
-    parts.push('secret=' + params.secret);
+    parts.push('secret=' + secret);
     if (issuer !== '') {
       parts.push('issuer=' + encodeURIComponent(issuer));
     }
