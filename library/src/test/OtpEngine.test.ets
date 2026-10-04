@@ -263,6 +263,10 @@ export default function otpEngineTest() {
       // window=-1 不满足 ≥0 → INVALID_WINDOW
       expect(() => { verify(fixture, p6, '287082', 1, -1); }).assertThrowError('INVALID_WINDOW');
     });
+    it('verify_invalidCounter_negative', 0, () => {
+      // base counter=-1 不满足 isSafeCounter → INVALID_COUNTER（不再静默 null）
+      expect(() => { verify(fixture, p6, '287082', -1, 1); }).assertThrowError('INVALID_COUNTER');
+    });
     it('verify_invalidWindow_fraction', 0, () => {
       // window=1.5 不满足整数 → INVALID_WINDOW
       expect(() => { verify(fixture, p6, '287082', 1, 1.5); }).assertThrowError('INVALID_WINDOW');

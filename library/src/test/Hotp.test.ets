@@ -5,6 +5,7 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { HOTP } from '../main/ets/HOTP';
 import { OtpError, OtpErrorCode } from '../main/ets/OtpError';
+import { OtpAlgorithm } from '../main/ets/OtpOptions';
 import { registerHmac } from '../main/ets/internal/HmacProvider';
 import { buildRfcFixture } from './HmacFixture';
 import { RFC4226_SHA1_6DIGIT, SEEDS } from './vectors/RfcVectors';
@@ -111,6 +112,18 @@ export default function hotpTest() {
     it('ctor_counterNeg1_throws', 0, () => {
       // counter=-1 不满足 ≥0 整数 → INVALID_COUNTER
       expectThrowsCode(() => { new HOTP({ secret: SECRET, counter: -1 }, fixture); }, OtpErrorCode.INVALID_COUNTER);
+    });
+    it('ctor_algorithmInvalid_throws', 0, () => {
+      // 构造期即校验 algorithm：与 OTPAuthURI.parse 的 INVALID_ALGORITHM 行为对齐
+      expectThrowsCode(() => {
+        new HOTP({ secret: SECRET, algorithm: 'MD5' as OtpAlgorithm }, fixture);
+      }, OtpErrorCode.INVALID_ALGORITHM);
+    });
+    it('verify_counterNegative_throws', 0, () => {
+      // verify 入口校验 counter：负值不再静默返回 null，与 generate 的 INVALID_COUNTER 一致
+      expectThrowsCode(() => {
+        new HOTP({ secret: SECRET, counter: 1 }, fixture).verify('287082', { counter: -5, window: 1 });
+      }, OtpErrorCode.INVALID_COUNTER);
     });
     it('ctor_minSecretBits128_80bit_throws', 0, () => {
       // 80 bit secret（10 字节 JBSWY3DPEHPK3PXP）< 128 → SECRET_TOO_WEAK
