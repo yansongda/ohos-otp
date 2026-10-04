@@ -194,7 +194,7 @@ ohos-otp/
 | `totp.verify(token: string, options?: VerifyOptions): number \| null` | 恒定时间比对；返回命中窗口相对当前步的**偏移 delta**（0=当前步，-1=上一步），未命中返回 `null` | RFC 6238 §5.2/§6 |
 | `totp.remaining(timestampMs?: number): number` | 当前窗口剩余**整秒**，取值 `[1, period]` | — |
 | `totp.progress(timestampMs?: number): number` | 当前窗口进度 `[0, 1)`，供环形进度条 | — |
-| `totp.syncClockOffset(delta: number): void` | **单参数**；`clockOffsetMs -= delta * period * 1000`（符号约定见下） | RFC 6238 §6 |
+| `totp.syncClockOffset(delta: number): void` | **单参数**；`clockOffsetMs += delta * period * 1000`（符号约定见下）；向码源时钟对齐 | RFC 6238 §6 |
 | `totp.clockOffsetMs` (getter) | 当前偏移 | — |
 | `totp.toURI(): string` | 输出规范 `otpauth://totp/...` | GA Key URI |
 | `TOTP.fromURI(uri: string): TOTP` | 从 URI 构造（含 algorithm/digits/period/issuer/label） | GA Key URI |
@@ -221,12 +221,14 @@ ohos-otp/
 
 **`syncClockOffset` 符号约定**：
 
-| 场景 | 服务端 | 设备原始时钟 | 设备产出的码 | 服务端 `verify(ts=服务端时间, window:1)` | 修正所需 offset | 公式 `-= delta*period*1000` |
+| 场景 | 本地(运行库一方) | 码源时钟 | 码源 counter | 本地 verify(码, window:1) | 校准公式 | 校准后 |
 |---|---|---|---|---|---|---|
-| A 设备**快** 30s | 59s（counter 1） | 89s | counter 2 | delta = **+1** | **-30000**（89s 要算成 59s） | `-1*30000 = -30000` ✓ |
-| B 设备**慢** 30s | 89s（counter 2） | 59s | counter 1 | delta = **-1** | **+30000**（59s 要算成 89s） | `+1*30000 = +30000` ✓ |
-
-> 即：delta 的符号表示「码来自哪一步」，设备快时 offset 必须变负。若误用 `+=`，场景 A 会得到 `offset=+30000` → counter 3（应为 1），反而算错。
+| A 本地**慢** 30s | 59s(counter 1) | 89s | 2 | delta = **+1** | `+= 1*30000 = +30000` | effectiveTs 对齐 89s,window=0 直接命中 ✓ |
+| B 本地**快** 30s | 89s(counter 2) | 59s | 1 | delta = **-1** | `+= (-1)*30000 = -30000` | effectiveTs 对齐 59s,window=0 直接命中 ✓ |
+> 即 delta = 码源 counter − 本地 counter;校准把本地 effectiveTs 向码源对齐(RFC 6238 §6
+> "adjusted with the recorded number of time-step clock drifts";与 Google Authenticator
+> TotpClock 的 timeCorrection 语义一致)。闭环不变量:verify→sync→verify(window=0) 命中 delta=0,
+> 由 `syncClockOffset_closure_slowLocal` / `syncClockOffset_closure_fastLocal` 用例锁死。
 
 ### 3.3 算法设计与 RFC 对应关系
 

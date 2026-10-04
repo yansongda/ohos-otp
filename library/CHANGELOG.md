@@ -17,3 +17,13 @@
 
 - 明确「RFC 4226 §7.3 throttling 由校验服务端实现，本库不提供」的边界
 - 明确兼容性要求：`compatibleSdkVersion >= 6.0.0(20)`
+
+### Fixed
+
+- `TOTP.syncClockOffset` 校准方向修正：公式由 `clockOffsetMs -= delta * period * 1000` 改为 `+=`，使「verify → syncClockOffset(返回的 delta) → verify(window=0) 命中 delta=0」闭环成立（与 RFC 6238 §6 resync 方向一致；配套闭环不变量用例）
+
+### Changed
+
+- 构造期校验 `algorithm`（非法值抛 `INVALID_ALGORITHM`，此前穿透到 crypto 层抛 `CRYPTO_FAILED`）
+- `HOTP.verify` 的 `options.counter` 非法（负数/超 2^53-1）抛 `INVALID_COUNTER`（此前静默返回 null）
+- `OTPAuthURI.build` 对 `secret` 先做 base32 规范化（大写无填充；非法字符抛 `INVALID_BASE32_CHAR`），与 `parse` 对称
