@@ -1,10 +1,5 @@
 # Changelog
 
-<!-- 约束：本文件首个 `## ` 标题必须等于 library/oh-package.json5 的 version——
-     scripts/ci/check-invariants.mjs 的「版本号与 CHANGELOG 一致」取首个 `## ` 标题做比对。
-     故 1.0.0 之后的改动先用 ### Unreleased 承载；正式发布时把它升为 `## <version>`、
-     同步提升 oh-package.json5 的 version，并把下面的 #### Fixed / #### Changed 降一级。 -->
-
 ### Unreleased
 
 #### Fixed
