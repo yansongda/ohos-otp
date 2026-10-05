@@ -2,7 +2,7 @@
 
 > **时间**：2026-10-01（2026-10-02 重构为结论态）
 > **作者**：DeepSeek V4.1 Flash + yansongda
-> **状态**：已实现并验证（v1.0.0；验证结果见附录 B）
+> **状态**：已实现并验证（验证结果见附录 B；版本沿革见 `library/CHANGELOG.md`）
 > **代码事实来源**：`library/`（源码即契约，本文件与其冲突时以源码为准）
 
 ---
@@ -347,14 +347,14 @@ export enum OtpErrorCode {
 | 项 | 决策 | 依据/风险 |
 |---|---|---|
 | 包名 | `@yansongda/otp` | `@group/name` 合法（group 小写字母开头） |
-| 版本 | `1.0.0` | 强制 semver；**同版本发布后不可覆盖/不可复用**，只能发新版本 |
+| 版本 | 遵循 semver；**唯一来源**为 `library/oh-package.json5`（本文件不记录具体版本值，沿革见 `library/CHANGELOG.md`） | **同版本发布后不可覆盖/不可复用**，只能发新版本 |
 | 必填字段 | `description`(6–512) / `author`(对象：name + email 或 url，**必须为对象**) / `repository`(开源包必填) | OHPM《发包规则汇总》比官方字段表更严，以后者为准 |
 | 推荐字段 | `keywords`（**非必填**，仅影响检索） | — |
 | 四件套 | `oh-package.json5` + `README.md` + `CHANGELOG.md` + `LICENSE`（均非空） | 缺任一个上架失败；README **必须包含 `ohpm install @yansongda/otp`**，CHANGELOG **必须含当前版本号** |
 | README 多语言 | `README.md`（英文，必交）+ `README-cn.md`（中文，附加） | OHPM 必交项只有 `README.md` |
 | LICENSE | MIT（与 `oh-package.json5` 一致） | MIT/Apache-2.0 均可 |
 | 依赖 | `dependencies: {}` 保持零依赖 | 三方库引用本库时**代码级不传递**依赖 |
-| 测试依赖 | `@ohos/hypium 1.0.25`、`@ohos/hamock 1.0.0` 位于 `library/oh-package.json5` 的 `devDependencies` | `devDependencies` 不随 HAR 分发 |
+| 测试依赖 | `@ohos/hypium 1.0.25` 位于 `library/oh-package.json5` 的 `devDependencies` | `devDependencies` 不随 HAR 分发 |
 | HAR 产物 | 字节码 HAR：`ets/modules.abc` + 构建自动生成的 `Index.d.ets` 与各 `.d.ets` 声明（无需手工补 `types`）；`obfuscation.enable: false` | `ohpm prepublish` 会对「包含源码」给出 WARN，属预期 |
 | 本地包预检 | `ohpm prepublish <产物.har>`（`ohpm` 子命令清单含 `prepublish`、**不含 `pack`**） | — |
 | compatibleSdkVersion | **`6.0.0(20)`** | 代价：API 12–19 的工程无法消费（HAR 的 compatibleSdkVersion 不得大于使用方）。README 顶部已声明 |
@@ -443,12 +443,12 @@ export enum OtpErrorCode {
 
 | 项 | 结果 |
 |---|---|
-| 本地单测（`test --mode module -p module=library@default -p testType=local`） | `Tests run: 240, Failure: 0, Error: 0, Pass: 240, Ignore: 0`，`BUILD SUCCESSFUL` |
-| 覆盖率 | lines 419/465 = **90.11%**；functions 48/55 = 87.27%；branches 183/207 = 88.41% |
+| 本地单测（`test --mode module -p module=library@default -p testType=local`） | `Tests run: 247, Failure: 0, Error: 0, Pass: 247, Ignore: 0`，`BUILD SUCCESSFUL` |
+| 覆盖率 | lines 428/474 = **90.30%**；functions 49/56 = 87.50%；branches 190/213 = 89.20% |
 | RFC 官方向量 | RFC 4226 Appendix D **10/10** + RFC 6238 Appendix B **18/18**（本地 fixture 路径） |
 | 设备端 `ohosTest`（真实 cryptoFramework + barrel 链路 + 默认 provider） | **37/37 全绿**（`aa test`；`Tests run: 37, Failure: 0`） |
 | HAR 产物 | `library/build/default/outputs/default/library.har`，包内 `src/test`/`ohosTest` 计数 = 0 |
-| `ohpm prepublish` | `prepublish @yansongda/otp 1.0.0 succeed`（exit 0；1 条「含源码」WARN 属预期） |
+| `ohpm prepublish` | `prepublish succeed`（exit 0；1 条「含源码」WARN 属预期） |
 | 消费方 | `entry` HAP `assembleHap` exit 0；demo 界面级核对通过 |
 
 ---
