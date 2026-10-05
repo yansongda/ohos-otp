@@ -7,7 +7,7 @@
 - `library/` = HAR 库 **`@yansongda/otp` v1.0.0**：RFC 4226 HOTP + RFC 6238 TOTP（SHA1/SHA256/SHA512，6/7/8 位，otpauth URI，漂移窗口，时钟偏移校准）。零运行时依赖。
 - `entry/` = 消费方 smoke demo（仅依赖 barrel，**不参与** HAR 打包）。
 - 兼容性：`compatibleSdkVersion 6.0.0(20)`（API 12–19 工程无法消费，README 已声明）。
-- 现状：本地单测 240 全绿 / 覆盖率 90.11%；设备端 `ohosTest` 37/37；RFC 向量 10/10 + 18/18；`ohpm prepublish` 通过。未发布。
+- 现状：本地单测 247 全绿 / 覆盖率 lines 90.3%；设备端 `ohosTest` 37/37；RFC 向量 10/10 + 18/18；`ohpm prepublish` 通过。已发布至 OHPM（当前版本以 `library/oh-package.json5` 为准）。
 
 ## 2. 分层与不变量（**改动必须遵守**）
 
@@ -42,7 +42,7 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 
 # 本地单测 + 覆盖率（PC；改算法逻辑后必跑）
 $HB --no-daemon -c modelVersion=6.1.1 test --mode module -p module=library@default -p testType=local -p coverage=true
-#   → Tests run: 240, Pass: 240；覆盖率 lines ≈ 90%
+#   → Tests run: 247, Pass: 247；覆盖率 lines ≈ 90%
 
 # 库产物（release）
 $HB --no-daemon -c modelVersion=6.1.1 assembleHar --mode module -p module=library@default -p product=default -p buildMode=release
