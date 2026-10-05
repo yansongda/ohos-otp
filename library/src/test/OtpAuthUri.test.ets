@@ -184,6 +184,19 @@ export default function otpAuthUriTest() {
       );
     });
 
+    it('build_normalizesSecret', 0, () => {
+      // 小写+填充的 secret 经 build 规范化为大写无填充（与 parse 的 encode(decode()) 对称）：
+      // decode 去空白/尾'='并转大写 → 'JBSWY3DPEHPK3PXP'，再 encode 得同形规范串。
+      const p: OtpAuthParams = { type: OtpType.TOTP, secret: 'jbswy3dpeh pk3pxp=', algorithm: OtpAlgorithm.SHA1, digits: 6 };
+      expect(OTPAuthURI.build(p)).assertEqual('otpauth://totp/?secret=JBSWY3DPEHPK3PXP&algorithm=SHA1');
+    });
+
+    it('build_invalidSecretChar_throws', 0, () => {
+      // secret 含 base32 字母表外字符 → 与 parse 同样抛 INVALID_BASE32_CHAR
+      const p: OtpAuthParams = { type: OtpType.TOTP, secret: 'JBSW!@#', algorithm: OtpAlgorithm.SHA1, digits: 6 };
+      expectThrowsCode(() => { OTPAuthURI.build(p); }, OtpErrorCode.INVALID_BASE32_CHAR);
+    });
+
     it('roundtrip_totpFullFields', 0, () => {
       const p: OtpAuthParams = {
         type: OtpType.TOTP,

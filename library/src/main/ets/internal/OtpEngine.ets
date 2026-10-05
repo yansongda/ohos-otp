@@ -39,6 +39,9 @@ export function verify(provider: HmacProvider, params: EngineParams, token: stri
   if (!isNumericToken(token) || token.length !== params.digits) {
     throw new OtpError(OtpErrorCode.INVALID_TOKEN, 'INVALID_TOKEN');
   }
+  if (!isSafeCounter(counter)) {
+    throw new OtpError(OtpErrorCode.INVALID_COUNTER, 'INVALID_COUNTER');
+  }
   if (!Number.isInteger(window) || window < 0) {
     throw new OtpError(OtpErrorCode.INVALID_WINDOW, 'INVALID_WINDOW');
   }

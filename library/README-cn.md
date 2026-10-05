@@ -36,7 +36,7 @@ const progress: number = totp.progress();    // 本窗口进度（0..1）
 // 带 1 步漂移窗口校验：返回漂移 delta，未命中返回 null
 const delta: number | null = totp.verify(code, { window: 1 });
 if (delta !== null) {
-  totp.syncClockOffset(delta);               // 按 delta 个时间步校准本地时钟
+  totp.syncClockOffset(delta);               // 向码源时钟对齐（RFC 6238 §6）
 }
 
 // 序列化为 / 从 otpauth:// URI 恢复
@@ -47,6 +47,8 @@ const restored: TOTP = TOTP.fromURI(uri);
 const hotp = new HOTP({ secret: 'JBSWY3DPEHPK3PXP', counter: 0 });
 const hotpCode: string = hotp.generate();
 const hotpDelta: number | null = hotp.verify(hotpCode, { window: 5 });
+// 命中后应持久化下一个 counter（RFC 4226 §7.4 防重放）：counter = base + delta + 1
+// （本库不会替你推进实例 counter）
 
 // ---- Secret 工具 ----
 const secret = Secret.fromBase32('JBSWY3DPEHPK3PXP');
@@ -93,7 +95,7 @@ try {
 | `totp.verify(token: string, options?: VerifyOptions): number \| null` | 恒定时间比对；返回漂移 delta（`0`=当前步，`-1`=上一步），未命中返回 `null` |
 | `totp.remaining(timestampMs?: number): number` | 当前窗口剩余整秒，取值 `[1, period]` |
 | `totp.progress(timestampMs?: number): number` | 当前窗口进度，取值 `[0, 1)` |
-| `totp.syncClockOffset(delta: number): void` | 按 `delta` 个时间步校准时钟（单参数；`clockOffsetMs -= delta * period * 1000`） |
+| `totp.syncClockOffset(delta: number): void` | 向码源时钟对齐：`clockOffsetMs += delta * period * 1000`（delta = 码源 counter − 本地 counter） |
 | `totp.clockOffsetMs: number` | 当前时钟偏移（毫秒） |
 | `totp.toURI(): string` / `TOTP.fromURI(uri: string): TOTP` | 序列化为 / 从 `otpauth://totp/...` URI 恢复 |
 | `new HOTP(options: HotpOptions)` | 构造 HOTP |
@@ -118,13 +120,13 @@ try {
 - **RFC 4226 §5.3 —— 6/7/8 位**：`digits` 仅接受 6、7、8，其余抛 `INVALID_DIGITS`。
 - **RFC 6238 §4.2 —— T 超过 32 位**：时间步计数器使用安全整数运算（上限 2^53-1）；官方向量至 `T = 20000000000` 已由测试套件覆盖。
 - **RFC 6238 §5.2 —— 30 秒步长与网络延迟**：默认周期 30 秒。RFC 6238 §5.2 预期最多 1 个时间步的网络延迟——`verify` 默认 `window: 0`（严格，默认安全）；要复现服务端接受范围须显式传 `window: 1`。
-- **RFC 6238 §6 —— 重新同步**：`verify` 返回漂移 delta，`syncClockOffset(delta)` 应用该偏移，客户端可跟踪快/慢的设备时钟。
+- **RFC 6238 §6 —— 重新同步**：`verify` 返回漂移 delta，`syncClockOffset(delta)` 以 `+=` 应用，校验方借此跟踪码源时钟漂移。
 - **RFC 6238 §1.2 —— 算法**：SHA1 是所有实现必须支持的互操作默认；SHA256/SHA512 为可选。本库三者均支持。
 - **RFC 4226 §7.3 —— throttling**：失败退避/锁定属校验服务端职责，**本库不提供**。
 
 ## 错误处理与故障排查
 
-一切失败均抛 `OtpError`，携带固定 `code`（字符串）；错误消息绝不包含 secret、token 或密钥材料。下表覆盖全部 16 个对外错误码（`NOT_IMPLEMENTED` 为内部脚手架占位，交付产物中已清零、不对外）。
+一切失败均抛 `OtpError`，携带固定 `code`（字符串）；错误消息绝不包含 secret、token 或密钥材料。下表覆盖全部 17 个错误码（`OtpErrorCode` 经 barrel 导出）。`NOT_IMPLEMENTED` 为内部预留占位，库内无抛出点，正常使用不会遇到。
 
 | `OtpErrorCode` | 现象 | 根因 | 处置 |
 |---|---|---|---|
@@ -144,6 +146,7 @@ try {
 | `CRYPTO_NOT_INITIALIZED` | crypto 注册表未注册 | 经深路径导入公开类且未注入 provider，默认注册从未执行 | 从包 barrel（`@yansongda/otp`）导入以自动触发 `installCryptoDefaults()` |
 | `INVALID_OTPAUTH_URI` | URI 前缀非法 | 不以 `otpauth://` 开头（大小写不敏感） | 提供合法 `otpauth://` URI |
 | `UNSUPPORTED_OTPAUTH_TYPE` | URI 类型不支持 | 类型非 `totp` / `hotp` | 使用 `totp` 或 `hotp` |
+| `NOT_IMPLEMENTED` | （从不抛出） | 内部预留占位 | 无需处理 |
 
 ## 测试与限制说明
 
@@ -159,6 +162,7 @@ try {
 - **脱敏是安全网而非日志许可**：`Secret.toJSON()` 返回 `'[REDACTED]'` 保证 `JSON.stringify` 不泄漏密钥，但你仍不得主动把 secret 交给日志或上报。
 - **不提供**：Steam Guard、SHA224 / SHA384 / SM3、BigInt / 完整 64 位 counter、throttling（RFC 4226 §7.3，服务端职责）、二维码渲染与扫码。
 - **默认严格校验**：`verify` 使用 `window: 0`；相邻时间步的 token 返回 `null`，除非显式传 window。
+- **window 无上限**：窗口 w 时 verify 执行 2w+1 次 HMAC（每次重建 SymKey/Mac），调用方应自行限制（通常 ≤1-2 步）。
 
 ## 安全说明
 

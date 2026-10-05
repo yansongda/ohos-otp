@@ -1,7 +1,7 @@
 /**
  * TOTP 公开类 单测：全部经 HmacFixture 注入，深路径 import，不碰系统能力。
  * 期望值全部来自黄金向量（RfcVectors.ets）；每条断言前先写出 counter/offset 推导。
- * 注意：syncClockOffset 公式为 clockOffsetMs -= delta * period * 1000。
+ * 注意：syncClockOffset 公式为 clockOffsetMs += delta * period * 1000。
  */
 import { describe, it, expect } from '@ohos/hypium';
 import { TOTP } from '../main/ets/TOTP';
@@ -149,29 +149,53 @@ export default function totpTest() {
       expect(new TOTP({ secret: S1, digits: 6 }, fixture).verify('287082', { timestamp: 1000, window: 1 })).assertEqual(1);
     });
     it('verify_appliesClockOffset', 0, () => {
-      // 推导：syncClockOffset(1) → offset = -1*30*1000 = -30000；verify(timestamp=89000) 有效时间 = 89000-30000 = 59000 → counter=1
-      //   '287082'（c1）命中 → delta 0（证明显式传入 timestamp 时也叠加偏移）
+      // 推导:sync(+1) → offset=+30000;verify(ts=59000) 有效时间 89000 → counter=2,
+      //   '359152'(c2) window=0 直接命中 delta=0(证明显式传入 timestamp 时也叠加偏移)
       const t: TOTP = new TOTP({ secret: S1, digits: 6 }, fixture);
       t.syncClockOffset(1);
-      expect(t.verify('287082', { timestamp: 89000 })).assertEqual(0);
+      expect(t.clockOffsetMs).assertEqual(30000);
+      expect(t.verify('359152', { timestamp: 59000 })).assertEqual(0);
     });
 
     // ── syncClockOffset 双场景（先推导再断言）──
-    it('syncClockOffset_scenarioA_fastClock', 0, () => {
-      // 场景 A（设备快 30s）：delta=+1 → clockOffsetMs -= 1*30*1000 = -30000。
-      //   推导：generate(89000) 有效时间 = 89000 + (-30000) = 59000ms → counter = floor(59/30) = 1 → 6 位码 287082
+    it('syncClockOffset_closure_slowLocal', 0, () => {
+      // 场景:本地慢 30s(本地 59s,码源 89s)。推导:base counter=floor(59/30)=1,
+      //   token='359152'(c2)命中 delta=+1;sync(+1) → offset=+30000 → generate(59000)
+      //   有效 89000 → counter=2 直接出 c2 码;window=0 复验命中 delta=0(闭环不变量)
       const t: TOTP = new TOTP({ secret: S1, digits: 6 }, fixture);
-      t.syncClockOffset(1);
-      expect(t.clockOffsetMs).assertEqual(-30000);
-      expect(t.generate(89000)).assertEqual('287082');
-    });
-    it('syncClockOffset_scenarioB_slowClock', 0, () => {
-      // 场景 B（设备慢 30s，新建实例）：delta=-1 → clockOffsetMs -= (-1)*30*1000 = +30000。
-      //   推导：generate(59000) 有效时间 = 59000 + 30000 = 89000ms → counter = floor(89/30) = 2 → 6 位码 359152（A.2 c2）
-      const t: TOTP = new TOTP({ secret: S1, digits: 6 }, fixture);
-      t.syncClockOffset(-1);
+      const delta: number | null = t.verify('359152', { timestamp: 59000, window: 1 });
+      expect(delta).assertEqual(1);
+      t.syncClockOffset(delta!);
       expect(t.clockOffsetMs).assertEqual(30000);
       expect(t.generate(59000)).assertEqual('359152');
+      expect(t.verify('359152', { timestamp: 59000 })).assertEqual(0);
+    });
+    it('syncClockOffset_closure_fastLocal', 0, () => {
+      // 场景:本地快 30s(本地 89s,码源 59s)。推导:base counter=2,token='287082'(c1)
+      //   命中 delta=-1;sync(-1) → offset=-30000 → generate(89000) 有效 59000 → counter=1
+      //   直接出 c1 码;window=0 复验命中 delta=0
+      const t: TOTP = new TOTP({ secret: S1, digits: 6 }, fixture);
+      const delta: number | null = t.verify('287082', { timestamp: 89000, window: 1 });
+      expect(delta).assertEqual(-1);
+      t.syncClockOffset(delta!);
+      expect(t.clockOffsetMs).assertEqual(-30000);
+      expect(t.generate(89000)).assertEqual('287082');
+      expect(t.verify('287082', { timestamp: 89000 })).assertEqual(0);
+    });
+    it('syncClockOffset_repeatAccumulates', 0, () => {
+      // 连续校准累加:+1 → +30000,再 +1 → +60000;回拨 -3 → -30000
+      const t: TOTP = new TOTP({ secret: S1, digits: 6 }, fixture);
+      t.syncClockOffset(1);
+      t.syncClockOffset(1);
+      expect(t.clockOffsetMs).assertEqual(60000);
+      t.syncClockOffset(-3);
+      expect(t.clockOffsetMs).assertEqual(-30000);
+    });
+    it('ctor_algorithmInvalid_throws', 0, () => {
+      // 构造期即校验 algorithm(与 HOTP 侧、URI parse 对齐)
+      expectThrowsCode(() => {
+        new TOTP({ secret: S1, algorithm: 'MD5' as OtpAlgorithm }, fixture);
+      }, OtpErrorCode.INVALID_ALGORITHM);
     });
     it('syncClockOffset_nonInteger_throws', 0, () => {
       // delta 非整数 → INVALID_WINDOW（单参数）

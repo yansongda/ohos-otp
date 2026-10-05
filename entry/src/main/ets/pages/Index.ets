@@ -56,13 +56,15 @@ struct Index {
       return;
     }
     try {
-      // window=1：允许前后各 1 步漂移；命中返回 delta（单位=时间步），未命中 null
+      // 演示 window 校验：对当前窗口刚生成的码做 verify（同源码恒 delta=0，
+      // 说明本机时钟与码源一致）。真实场景：把用户输入/服务器下发的码传入 verify，
+      // 命中后 syncClockOffset(delta) 将本机时钟向码源对齐（RFC 6238 §6）。
       const delta = this.totp.verify(this.code, { window: 1 });
       if (delta === null) {
         this.deltaText = '未命中窗口（返回 null）';
       } else {
         this.totp.syncClockOffset(delta);
-        this.deltaText = '命中 delta=' + delta + '，已校准';
+        this.deltaText = '命中 delta=' + delta + '，已按码源对齐';
       }
     } catch (e) {
       const err = e as OtpError;
@@ -83,7 +85,7 @@ struct Index {
         .fontSize(16)
       Progress({ value: this.progress, total: 1, type: ProgressType.Linear })
         .width('80%')
-      Button('校验并校准')
+      Button('校验当前码(演示 window=1)')
         .onClick(() => {
           this.verifyAndSync();
         })

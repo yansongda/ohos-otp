@@ -5,7 +5,7 @@ import { OtpError, OtpErrorCode } from './OtpError';
 import { HotpOptions, OtpAlgorithm, OtpType, VerifyOptions } from './OtpOptions';
 import { HmacProvider, requireHmac } from './internal/HmacProvider';
 import { isSafeCounter } from './internal/Counter';
-import { isValidDigits } from './internal/Digits';
+import { isValidDigits, isValidAlgorithm } from './internal/Digits';
 import { generate as engineGenerate, verify as engineVerify, EngineParams } from './internal/OtpEngine';
 import { Secret } from './Secret';
 import { OTPAuthURI } from './OTPAuthURI';
@@ -31,6 +31,9 @@ export class HOTP {
 
     if (!isValidDigits(digits)) {
       throw new OtpError(OtpErrorCode.INVALID_DIGITS, 'INVALID_DIGITS');
+    }
+    if (!isValidAlgorithm(algorithm)) {
+      throw new OtpError(OtpErrorCode.INVALID_ALGORITHM, 'INVALID_ALGORITHM');
     }
     if (!isSafeCounter(counter)) {
       throw new OtpError(OtpErrorCode.INVALID_COUNTER, 'INVALID_COUNTER');

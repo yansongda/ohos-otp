@@ -36,7 +36,7 @@ const progress: number = totp.progress();    // window progress (0..1)
 // Verify with a drift window of 1 step; returns the drift delta, or null when no window matches
 const delta: number | null = totp.verify(code, { window: 1 });
 if (delta !== null) {
-  totp.syncClockOffset(delta);               // calibrate the local clock by `delta` time steps
+  totp.syncClockOffset(delta);               // align the local clock with the token source (RFC 6238 §6)
 }
 
 // Serialize to / restore from an otpauth:// URI
@@ -47,6 +47,8 @@ const restored: TOTP = TOTP.fromURI(uri);
 const hotp = new HOTP({ secret: 'JBSWY3DPEHPK3PXP', counter: 0 });
 const hotpCode: string = hotp.generate();
 const hotpDelta: number | null = hotp.verify(hotpCode, { window: 5 });
+// On a hit, persist the next counter (RFC 4226 §7.4 anti-replay): counter = base + delta + 1
+// (the library never advances the instance counter for you)
 
 // ---- Secret helpers ----
 const secret = Secret.fromBase32('JBSWY3DPEHPK3PXP');
@@ -93,7 +95,7 @@ try {
 | `totp.verify(token: string, options?: VerifyOptions): number \| null` | Constant-time comparison; returns the drift delta (`0` = current step, `-1` = previous step) or `null` |
 | `totp.remaining(timestampMs?: number): number` | Whole seconds left in the current window, `[1, period]` |
 | `totp.progress(timestampMs?: number): number` | Progress of the current window, `[0, 1)` |
-| `totp.syncClockOffset(delta: number): void` | Calibrate the clock by `delta` time steps (single argument; `clockOffsetMs -= delta * period * 1000`) |
+| `totp.syncClockOffset(delta: number): void` | Calibrate the clock toward the token source: `clockOffsetMs += delta * period * 1000` (delta = token counter − local counter) |
 | `totp.clockOffsetMs: number` | Current clock offset in milliseconds |
 | `totp.toURI(): string` / `TOTP.fromURI(uri: string): TOTP` | Serialize to / restore from an `otpauth://totp/...` URI |
 | `new HOTP(options: HotpOptions)` | Construct a HOTP |
@@ -118,13 +120,13 @@ try {
 - **RFC 4226 §5.3 — 6 / 7 / 8 digits**: `digits` accepts only 6, 7 or 8; anything else throws `INVALID_DIGITS`.
 - **RFC 6238 §4.2 — T beyond 32 bits**: the time-step counter is computed with safe integer arithmetic (up to 2^53-1); the official RFC 6238 vectors up to `T = 20000000000` are covered by the test suite.
 - **RFC 6238 §5.2 — 30s step and network latency**: the default period is 30 seconds. RFC 6238 §5.2 expects at most one time step of network latency — `verify` defaults to `window: 0` (strict, secure by default); pass `window: 1` to reproduce a server-side acceptance window.
-- **RFC 6238 §6 — resynchronization**: `verify` returns the drift delta and `syncClockOffset(delta)` applies it, so a client can track slow/fast device clocks.
+- **RFC 6238 §6 — resynchronization**: `verify` returns the drift delta and `syncClockOffset(delta)` applies it (`+=`), so the validating side tracks the token source's clock drift, per RFC 6238 §6 "adjusted with the recorded drift".
 - **RFC 6238 §1.2 — algorithms**: SHA1 is the interoperability default that every implementation must support; SHA256/SHA512 are optional. This library supports all three.
 - **RFC 4226 §7.3 — throttling**: throttling (failed-attempt back-off / lockout) is the responsibility of the validating server and is **not provided** by this library.
 
 ## Error handling and troubleshooting
 
-All failures throw `OtpError` with a fixed `code` (string). Messages never contain the secret, token or key material. The table below covers all 16 codes exposed to consumers (`NOT_IMPLEMENTED` is an internal scaffold placeholder and is gone from the delivered build).
+All failures throw `OtpError` with a fixed `code` (string). Messages never contain the secret, token or key material. The table below covers all 17 codes of `OtpErrorCode` (exported via the barrel). `NOT_IMPLEMENTED` is a reserved internal placeholder with no throw site in the library — normal usage never encounters it.
 
 | `OtpErrorCode` | Symptom | Root cause | Action |
 |---|---|---|---|
@@ -144,6 +146,7 @@ All failures throw `OtpError` with a fixed `code` (string). Messages never conta
 | `CRYPTO_NOT_INITIALIZED` | Crypto registry is not registered | You imported public classes via a deep path without injecting a provider, so the default registration never ran | Import through the package barrel (`@yansongda/otp`) so `installCryptoDefaults()` runs automatically |
 | `INVALID_OTPAUTH_URI` | URI prefix is invalid | Not starting with `otpauth://` (case-insensitive) | Provide a valid `otpauth://` URI |
 | `UNSUPPORTED_OTPAUTH_TYPE` | URI type is unsupported | Type is not `totp` / `hotp` | Use `totp` or `hotp` |
+| NOT_IMPLEMENTED | (never thrown) | Reserved internal placeholder | No action needed |
 
 ## Testing status
 
@@ -159,6 +162,7 @@ All failures throw `OtpError` with a fixed `code` (string). Messages never conta
 - **Secret redaction is a safety net, not a license to log**: `Secret.toJSON()` returns `'[REDACTED]'` so `JSON.stringify` never leaks the key, but you must still never hand a secret to logs or analytics.
 - **Not provided**: Steam Guard, SHA224 / SHA384 / SM3, BigInt / full 64-bit counters, throttling (RFC 4226 §7.3, a server-side concern), QR rendering or scanning.
 - **Strict verification by default**: `verify` uses `window: 0`; a token from an adjacent step returns `null` unless you pass an explicit window.
+- **No window limit**: verify performs 2w+1 HMAC computations for window w (each re-creates SymKey/Mac); keep w small (typically ≤ 1-2). The library does not cap it.
 
 ## Security notes
 
