@@ -43,13 +43,18 @@ PATH="/Applications/DevEco-Studio.app/Contents/tools/node/bin:$PATH" \
   library/build/default/outputs/default/library.har
 ```
 
-## 发布结果判定：以 registry 为准
+## 发布结果判定：先看命令收尾输出，再查 registry
 
+**OHPM 新版本要过审核，审核期间 registry 查不到**（1.0.0 对照：CHANGELOG 记 `2026-10-01`，registry `time.created` 为 `2026-10-04T10:28:06Z`）。所以 **`NOTFOUND` ≠ 未发布**。
+
+判定顺序：
+
+1. **真实终端里 publish 的收尾输出**才是第一手证据：成功会给出 `succeed` / 等待审核类提示；崩溃刷屏（exit 134）只说明本地失败。
+2. 再查 registry 交叉核验（审核通过后才可见）：
 ```bash
-ohpm info @yansongda/otp@<ver>   # exit 0 = 已发布；exit 1 + NOTFOUND = 未发布，可安全重试（此退出码可信）
+ohpm info @yansongda/otp@<ver>   # exit 0 = 已可见；exit 1 + NOTFOUND = 不可见（可能审核中，也可能没发）
 ```
-
-唯一**不能**作为判定依据的是 `ohpm publish` 自己的刷屏输出与退出码——无 TTY 崩溃时的 exit 134 只说明本地失败。
+3. 查不到但 publish 报成功 → **去 OHPM 控制台看发布记录/审核状态**：CLI 没有待审查询入口（子命令只有 config/info/install/publish/unpublish/dist-tags 等）。**此时禁止重发**——版本号已被占用，重发只会撞冲突或产生重复提交。
 
 `curl -s -o /dev/null -w "%{http_code}\n" https://ohpm.openharmony.cn/ohpm/@yansongda/otp/<ver>` 与 `.../-/otp-<ver>.har` 亦可交叉核验（200 = 已发布）。
 
@@ -59,6 +64,7 @@ ohpm info @yansongda/otp@<ver>   # exit 0 = 已发布；exit 1 + NOTFOUND = 未�
 |---|---|
 | publish 刷出**十几万条** `content of private key in the key_path error` 后 `FATAL ERROR ... heap out of memory`（exit 134） | **没有 TTY**：ohpm 靠交互提问取私钥口令，读到空 → 签名失败 → 源码里的 `for (;e === signError;)` 无限重问。**绝不重定向 publish 输出、绝不在 agent 沙箱里跑**；重跑只会再 OOM 一次 |
 | 误判为「私钥配错 / 该换未加密密钥」 | ohpm **只接受加密私钥**（内容不含 `ENCRYPTED` 直接 `NotSupportPrivateKey`）。口令只有两个来源：`.ohpmrc` 的 `key_passphrase`，或交互提问 |
+| registry 查不到就以为没发成、准备重发 | 新版本可能**在审核队列里**（审核通过才对 registry 可见）。先看 publish 的收尾输出与 OHPM 控制台发布记录；`NOTFOUND` 本身不构成重发理由 |
 | 用 nvm 的 node 跑 ohpm | `ohpm` 包装脚本取 `PATH` 里的 `node` → 固定用 DevEco 自带 v18 |
 | 拿整包 sha256 与人对账 | HAR **字节不可复现**（tar mtime 差异）：清单与包内文件内容一致即可，整包 sha 只当单次构建指纹 |
 | `git branch -d` 删 release 分支报 `not fully merged` | squash 合并导致分支 tip 不是 main 祖先：先 `git diff <branch> main` 确认零差异，再 `-D` |
@@ -68,5 +74,6 @@ ohpm info @yansongda/otp@<ver>   # exit 0 = 已发布；exit 1 + NOTFOUND = 未�
 
 - 正要在 agent / 无终端环境里跑 `ohpm publish`，或把它的输出重定向到文件
 - 想用 `--log_level debug` **重跑一次**「看看卡在哪」（会再 OOM，且方向错）
+- 因为「registry 查不到」就打算重发同一版本号（可能只是在审核中）
 - 想在设计文档或 README 正文里写具体版本号（版本值只属于 `oh-package.json5` 与 `CHANGELOG.md`）
 - 打算替人 push、打 tag、合并 PR，或建议把私钥口令写进配置文件
