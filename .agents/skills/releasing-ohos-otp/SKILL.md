@@ -15,7 +15,7 @@ description: 用于发布 @yansongda/otp 新版本到 OHPM 时——bump 版本�
 
 | # | 步骤 | 判定 / 约束 |
 |---|---|---|
-| 1 | 落版 | 版本唯一来源是 `library/oh-package.json5`；`CHANGELOG.md` 写出 `## <ver> - <YYYY-MM-DD>`；`README.md` 预发布清单里的版本号同步 |
+| 1 | 落版 | 版本唯一来源是 `library/oh-package.json5`；`CHANGELOG.md` 写出 `## <ver> - <YYYY-MM-DD>`；**README（含预发布清单）不写版本字面量**（见 Red flags），只需保证与 `oh-package.json5` 一致 |
 | 2 | 本地预检 | 不变量守卫 9/9 → CodeLinter 0 缺陷 → local test 全绿 → `assembleHar` → 产物自检 → `prepublish succeed` |
 | 3 | 分支 + PR | 本仓库是 **squash** 合并；PR 由人工合并，agent 不合并 |
 | 4 | tag | `git tag -a v<ver> -m "v<ver>" <merge-commit>`；推送需人工授权 |
