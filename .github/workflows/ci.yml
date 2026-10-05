@@ -296,6 +296,13 @@ jobs:
           fi
           grep -q '^package/Index.d.ets$' "$listing" || { echo "::error::HAR 缺少 package/Index.d.ets"; exit 1; }
 
+          # OHPM 包质量分「支持文档 / example」20 分直接看包内是否有 example 目录：
+          # hvigor 对 bytecode HAR 会拷贝模块根的白名单目录 example/，但不校验其存在性。
+          grep -q '^package/example/README.md$' "$listing" || {
+            echo "::error::HAR 缺少 package/example/README.md（OHPM example 评分项会归零）"
+            exit 1
+          }
+
       - name: ohpm prepublish (dry run, no publish)
         run: |
           set -euo pipefail

@@ -1,6 +1,6 @@
 {
   "name": "@yansongda/otp",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "RFC 4226/6238 compliant HOTP and TOTP library for ArkTS (SHA1/SHA256/SHA512, OTPAuth URI, drift window)",
   "main": "Index.ets",
   "author": {
@@ -9,6 +9,7 @@
   },
   "license": "MIT",
   "repository": "https://github.com/yansongda/ohos-otp",
+  "homepage": "https://github.com/yansongda/ohos-otp",
   "keywords": [
     "otp",
     "totp",
