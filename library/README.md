@@ -174,7 +174,7 @@ All failures throw `OtpError` with a fixed `code` (string). Messages never conta
 
 - [x] All four release files are non-empty: `oh-package.json5`, `README.md`, `CHANGELOG.md`, `LICENSE` — verified present inside the HAR package (`package/README.md`, `package/README-cn.md`, `package/CHANGELOG.md`, `package/LICENSE`)
 - [x] `README.md` contains the install command `ohpm install @yansongda/otp`
-- [x] `CHANGELOG.md` contains the current version number (`## 1.0.1`)
+- [x] `CHANGELOG.md` contains the current version number (kept in sync with `oh-package.json5`; neither README repeats the literal)
 - [x] `dependencies` is empty (`{}`) — zero runtime dependencies
 - [x] `ohpm prepublish <har>` passes locally (exit 0; note: it validates archive format and `oh-package.json5` metadata, not the four-file set)
 - [x] Local test coverage: 90.3% lines / 89.2% branches / 87.5% functions (report at `library/.test/default/outputs/test/reports/`); `internal/CryptoSource.ets` and `HmacProvider.ets` real-crypto paths are covered by the device-side `ohosTest` (not runnable on PC; device suite green 37/37)

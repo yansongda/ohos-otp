@@ -215,6 +215,19 @@ check('README 保留安装命令', () => {
   return 'README / README-cn 均已声明安装方式';
 });
 
+check('library/example/README.md 存在（OHPM「支持文档 / example」评分项）', () => {
+  // hvigor 对 bytecode HAR 的 release 白名单目录名正是 example，删除即丢 20 分且无任何本地报错。
+  const rel = 'library/example/README.md';
+  let stat;
+  try {
+    stat = statSync(join(REPO_ROOT, rel));
+  } catch {
+    throw new Error(`缺少 ${rel}（该目录会随 HAR 发布，勿删）`);
+  }
+  if (!stat.isFile() || stat.size === 0) throw new Error(`${rel} 为空或不是文件`);
+  return `${rel}（${stat.size} 字节）`;
+});
+
 console.log(`\n仓库不变量检查：${toPosix(REPO_ROOT)}\n`);
 let failed = 0;
 for (const c of checks) {

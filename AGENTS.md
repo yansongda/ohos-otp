@@ -26,6 +26,7 @@
 4. **取模只在 `Digits.format` 发生一次**；`Truncate` 只截断（`& 0x7f`，31 位非负）。
 5. **secret 绝不外泄**：库内零 `console.*`/`hilog`；`OtpError` 消息为固定文案；`Secret` 刻意不实现 `toString()`，脱敏靠 `toJSON()` → `'[REDACTED]'`。
 6. **`verify` 恒定时间**：窗口内**扫完所有候选**后才返回首个命中 delta，禁止加早退优化。
+7. **`library/example/` 随 HAR 发布，不得删除/改名**：hvigor 对 bytecode HAR 的 release 白名单目录名就是 `example`（`RELEASE_HAR_WHITE_LIST_DIR_NAME`），该目录会被原样打进包内 `package/example/`；OHPM「支持文档 / example」的 20 分完全依赖它。里面只放文档（README），不放不参与编译与 lint 的源码。缺失由 `scripts/ci/check-invariants.mjs` 与 CI 的 HAR 内容校验拦截。
 
 其他冻结契约：`OtpOptions` 字段名/可选性冻结（v1 起仅允许**新增可选字段**）；`OtpErrorCode` 固定 17 个字符串码；全同步 API（`*Sync` 链路）；零运行时依赖。
 
@@ -61,7 +62,7 @@ $HB --no-daemon -c modelVersion=6.1.1 onDeviceTest --mode module -p module=libra
 
 # 零 SDK 依赖的两条（CI 的 guard.yml / ci.yml 跑的就是它们，可先跑）
 bash scripts/ci/lint-local.sh          # CodeLinter；exit 4 = 命中 error，0 = 通过（不带 -e 永远 0）
-node scripts/ci/check-invariants.mjs   # 仓库不变量守卫（9 项）
+node scripts/ci/check-invariants.mjs   # 仓库不变量守卫（10 项）
 ```
 
 **CI（GitHub Actions）**：`guard.yml` = 不变量守卫（ubuntu-latest，无 SDK，秒级）；`ci.yml` = CodeLinter + PC 单测（覆盖率门槛 88%）+ `assembleHar` + `ohpm prepublish` + entry HAP smoke，产物含 `library.har` 与覆盖率报告。工具链取自社区镜像的华为 command-line-tools（`CLI_VERSION` 与归档 sha256 钉在 workflow 里，升级走显式 PR）；**跑在 `macos-15`，因为 local test 要起 Previewer（见 §8）**。本地无 SDK 时用上面两条脚本 + `bash scripts/ci/lint-local.sh` 复现 lint 与守卫。**CI 不执行 `ohpm publish` / `git push`**（§7 人工闸门）。

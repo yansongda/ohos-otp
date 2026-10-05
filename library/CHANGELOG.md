@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.2 - 2026-10-05
+
+> 仅打包与元数据变更，**无源码 / API 行为变化**；本版用于补齐 OHPM 包质量分的两个失分项。
+
+#### Added
+
+- `example/README.md`：随 HAR 一起分发的用法示例（TOTP 校验闭环、HOTP 计数器持久化、`otpauth://` URI、错误码分支）。hvigor 对 bytecode HAR 的 release 白名单目录恰好名为 `example`，因此该目录会原样进入包内 `package/example/`
+- `oh-package.json5` 新增 `homepage` 字段（与 `repository` 同址）
+
+#### Changed
+
+- HAR 文件数 26 → 27（新增 `package/example/README.md`），压缩后体积 31 805 → 34 133 字节（+2.3 KB）
+- 无公开签名、选项字段、错误码变化；`Secret` 脱敏与恒定时间比对等既有不变量不变
+
+---
+
 ## 1.0.1 - 2026-10-05
 
 > 升级提示：本版把**非法入参**从「静默返回 `null` / 穿透到 crypto 层」收紧为显式抛错（未新增错误码、未改公开签名与选项字段），合法入参行为不变。
