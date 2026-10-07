@@ -66,6 +66,50 @@ export default function base32Test() {
       expect(bytesEqual(padded, reference)).assertTrue();
     });
 
+    it('decodeLengthNotMultipleOf8_19Chars', 0, () => {
+      // 19 字符 → floor(19*5/8)=11 字节：末组仅 3 字符（=1 字节），残留 7 bit 必须被丢弃。
+      const bytes: Uint8Array = decode('GEZDGNBVGY3TQOJQGEZ');
+      expect(bytes.length).assertEqual(11);
+      expect(bytesEqual(bytes, decode(encode(bytes)))).assertTrue();
+    });
+
+    it('decodeLeadingAndInternalWhitespace', 0, () => {
+      // 前导空白也是 \s，必须一并剔除（宽松解析的边界：仅去内部空白会漏）。
+      const reference: Uint8Array = decode('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ');
+      const messy: Uint8Array = decode('  \tGEZD GNBV\nGY3T\rQOJQ GEZDGNBV GY3TQOJQ  ');
+      expect(bytesEqual(messy, reference)).assertTrue();
+    });
+
+    it('decodeUpperLowerMixed', 0, () => {
+      const reference: Uint8Array = decode('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ');
+      const mixed: Uint8Array = decode('GezdGnbvGY3tqojQgezdgnBvgy3tQOjq');
+      expect(bytesEqual(mixed, reference)).assertTrue();
+    });
+
+    it('decodeMultiplePaddingAmounts', 0, () => {
+      // '=+$' 是贪婪截断：1/4/6/8 个 '=' 必须都得到同一结果。
+      const reference: Uint8Array = decode('GEZDGNBVGY3TQOJQ');
+      expect(bytesEqual(decode('GEZDGNBVGY3TQOJQ='), reference)).assertTrue();
+      expect(bytesEqual(decode('GEZDGNBVGY3TQOJQ===='), reference)).assertTrue();
+      expect(bytesEqual(decode('GEZDGNBVGY3TQOJQ======'), reference)).assertTrue();
+      expect(bytesEqual(decode('GEZDGNBVGY3TQOJQ========'), reference)).assertTrue();
+    });
+
+    it('decodeBoundaryLengths_2to104', 0, () => {
+      // 位对齐边界压测（与实现无关）：覆盖 2..104 全部 base32 字符长度的 5 bit 对齐余数。
+      // 输入取字节序列长度 1..64，其编码长度恰好覆盖该区间。
+      for (let n = 1; n <= 64; n++) {
+        const arr: Uint8Array = new Uint8Array(n);
+        for (let i = 0; i < n; i++) {
+          arr[i] = (i * 91 + 17) & 0xff;
+        }
+        const encoded: string = encode(arr);
+        const decoded: Uint8Array = decode(encoded);
+        expect(decoded.length).assertEqual(n);
+        expect(bytesEqual(decoded, arr)).assertTrue();
+      }
+    });
+
     it('decodeWhitespaceEquivalent', 0, () => {
       const reference: Uint8Array = decode('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ');
       const spaced: Uint8Array = decode('GEZDGNBV GY3TQOJQ GEZDGNBV GY3TQOJQ');

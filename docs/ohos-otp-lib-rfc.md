@@ -214,10 +214,12 @@ ohos-otp/
 1. **同步 API（非 Promise）**：`*Sync` 接口已确认可用；8 字节 HMAC 是微秒级计算；避免 Promise 传染与竞态。
 2. **`verify` 返回 delta 而非 boolean**：布尔无法支撑时钟偏移估算，delta 是 `boolean + 校准量` 的超集。
 3. **`verify` 默认 `window = 0`（严格）**：客户端要复现服务端接受范围（RFC 6238 §5.2 允许 1 步网络延迟）时必须显式传 `window: 1`；默认严格 = 默认安全。
-4. **不缓存 `Mac`/`SymKey`**（v1）：避免实例状态与生命周期复杂度，性能优化留待有 profile 证据再做。
+4. **不缓存 `Mac`/`SymKey`**（v1/v1.0.2 实测确认）：避免实例状态与生命周期复杂度。**2026-10-07 设备实测（模拟器 API 24）已补齐 profile 证据**：每次签名 6.6 µs（其中真实 HMAC 仅 1.1 µs），缓存 `generator`+`Mac` 可降到 2.9 µs；但代价是长期驻留 `SymKey`，而 `SymKey.release()` 在 API 24 的公开类型上不存在（只能等 GC），且复用 Mac 时**每次必须 `initSync`**——省掉它会静默算错 digest（实测反例：同 key 换 message 不 init 时第二次起输出错误）。收益 3.9 µs/签名 不抵上述代价，**结论：继续不缓存**。另：`createMac` 等的建对象开销是真实存在的（占签名 45%），但绝对量太小。
 5. **`internal/*` 与 `HmacProvider` 不进 barrel**，但测试通过深路径直接注入 fixture。
 6. **`Secret.generate()` 经 kit-free 注册表取随机源**：`Secret.ets` 永不 import kit。
 7. **`Secret.toJSON()` 返回 `'[REDACTED]'`**：ArkTS 的 `private` 只是编译期约束，`_bytes` 是可枚举自有属性，宿主 `JSON.stringify(secret)` 会泄漏密钥；实现 `toJSON` 是唯一可靠且可单测的堵漏手段（README 同步明示该限制）。
+8. **性能已到实际下限，勿再优化内部函数体**（2026-10-07 实测）：全链 `new TOTP + generate + verify(window:1)` = 70.9 µs，其中 cryptoFramework 占 36.6 µs（51.6%）、构造期 `Secret.fromBase32` 占 ~14 µs、纯 JS 算法部分（base32 解码 / 截断 / 格式化 / 恒定时间比对）全部加起来 < 5 µs。
+   **关键陷阱**：本库内部模块间均为跨模块导入调用，跨模块解释器开销（~11–13 µs/次）远大于函数体本身；因此「用内联微基准证明某函数变快 N 倍」在本库不成立——必须用**真实调用路径**测量。实践过的反例：把 base32 解码改成单遍位缓冲后，内联基准快 67%（2.4 vs 4.4 µs），但经 `Secret.fromBase32` 真实调用反而从 13.03 → 14.5–15.6 µs（四次一致）。**该次尝试已回退**，仅保留测试增强（`Base32.test.ets` +5 例）。
 
 **`syncClockOffset` 符号约定**：
 
