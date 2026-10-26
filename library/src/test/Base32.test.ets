@@ -1,8 +1,9 @@
 import { describe, it, expect } from '@ohos/hypium';
-import { decode, encode } from '../main/ets/internal/Base32';
+import { decode, decodeStrict, encode, normalize } from '../main/ets/internal/Base32';
 import { OtpError, OtpErrorCode } from '../main/ets/OtpError';
+import { RFC4648_BASE32, Rfc4648Base32Vector } from './vectors/RfcVectors';
 
-/** 期望 decode/encode 抛出指定错误码（try/catch 捕获后断言，比消息匹配更精确）。 */
+/** 期望 decode/decodeStrict/encode 抛出指定错误码（try/catch 捕获后断言，比消息匹配更精确）。 */
 function expectThrowsCode(fn: () => void, code: OtpErrorCode): void {
   let thrown: boolean = false;
   let actualCode: string = '';
@@ -127,6 +128,92 @@ export default function base32Test() {
       expectThrowsCode(() => {
         decode('A');
       }, OtpErrorCode.SECRET_TOO_SHORT);
+    });
+
+    it('decodeStrict_rfc4648VectorsRoundTrip', 0, () => {
+      // RFC 4648 §10 的 7 条向量恰好覆盖全部合法尾长 {0,2,4,5,7}：
+      // 归一化后的规范串必须既能 strict 解码为明文，又能编码回自身（无损等价）。
+      for (let i = 0; i < RFC4648_BASE32.length; i++) {
+        const v: Rfc4648Base32Vector = RFC4648_BASE32[i];
+        const canonical: string = normalize(v.base32Padded);
+        if (canonical === '') {
+          continue; // 空串另有 EMPTY_SECRET 用例
+        }
+        const bytes: Uint8Array = decodeStrict(canonical);
+        expect(bytesEqual(bytes, asciiBytes(v.plain))).assertTrue();
+        expect(encode(bytes)).assertEqual(canonical);
+      }
+    });
+
+    it('decodeStrict_acceptsLenientNormalization', 0, () => {
+      // strict 拒绝的是「规范 base32 不可能产生」的尾长/尾位，不拒绝大小写/空白/尾部 '=' 风格。
+      const reference: Uint8Array = decodeStrict('MY');
+      expect(bytesEqual(decodeStrict('MY======'), reference)).assertTrue();
+      expect(bytesEqual(decodeStrict('  my \n'), reference)).assertTrue();
+      expect(bytesEqual(decodeStrict('My'), reference)).assertTrue();
+      expect(reference[0]).assertEqual(0x66);
+    });
+
+    it('decodeStrict_rejectsNonZeroTailBits', 0, () => {
+      // 反例构造：取 RFC 向量末字符，仅把其低位填充位由 0 翻为非 0（尾长不变）。
+      // MY→MB(2) / MZXQ→MZXR(4) / MZXW6→MZXW7(5) / MZXW6YQ→MZXW6YT(7) / MZXW6YTBOI→MZXW6YTBOJ(2)
+      expectThrowsCode(() => {
+        decodeStrict('MB');
+      }, OtpErrorCode.INVALID_BASE32_PADDING);
+      expectThrowsCode(() => {
+        decodeStrict('MZXR');
+      }, OtpErrorCode.INVALID_BASE32_PADDING);
+      expectThrowsCode(() => {
+        decodeStrict('MZXW7');
+      }, OtpErrorCode.INVALID_BASE32_PADDING);
+      expectThrowsCode(() => {
+        decodeStrict('MZXW6YT');
+      }, OtpErrorCode.INVALID_BASE32_PADDING);
+      expectThrowsCode(() => {
+        decodeStrict('MZXW6YTBOJ');
+      }, OtpErrorCode.INVALID_BASE32_PADDING);
+    });
+
+    it('decodeStrict_rejectsImpossibleTailLength', 0, () => {
+      // RFC 4648 §6 只可能产生 len%8 ∈ {0,2,4,5,7}；{1,3,6} 属结构性非法。
+      expectThrowsCode(() => {
+        decodeStrict('A');
+      }, OtpErrorCode.INVALID_BASE32_PADDING);
+      expectThrowsCode(() => {
+        decodeStrict('AAA');
+      }, OtpErrorCode.INVALID_BASE32_PADDING);
+      expectThrowsCode(() => {
+        decodeStrict('MZXW6Y');
+      }, OtpErrorCode.INVALID_BASE32_PADDING);
+    });
+
+    it('decodeStrict_charErrorBeforeTailLength', 0, () => {
+      // 'AB1' 同时含非法字符与非法尾长：字符错误优先（对调用方更有排障价值）。
+      expectThrowsCode(() => {
+        decodeStrict('AB1');
+      }, OtpErrorCode.INVALID_BASE32_CHAR);
+    });
+
+    it('decodeStrict_emptyThrowsEmptySecret', 0, () => {
+      expectThrowsCode(() => {
+        decodeStrict('');
+      }, OtpErrorCode.EMPTY_SECRET);
+      expectThrowsCode(() => {
+        decodeStrict('   ');
+      }, OtpErrorCode.EMPTY_SECRET);
+      expectThrowsCode(() => {
+        decodeStrict('====');
+      }, OtpErrorCode.EMPTY_SECRET);
+    });
+
+    it('decodeStrict_differsFromLenientOnSingleChar', 0, () => {
+      // 锁死唯一的「同输入不同码」：'A' 宽松→SECRET_TOO_SHORT，strict→INVALID_BASE32_PADDING。
+      expectThrowsCode(() => {
+        decode('A');
+      }, OtpErrorCode.SECRET_TOO_SHORT);
+      expectThrowsCode(() => {
+        decodeStrict('A');
+      }, OtpErrorCode.INVALID_BASE32_PADDING);
     });
 
     it('decodeIllegalChar_AB1', 0, () => {

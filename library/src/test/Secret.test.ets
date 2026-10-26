@@ -42,6 +42,31 @@ export default function secretTest() {
       expect(ref.toBase32()).assertEqual('JBSWY3DPEHPK3PXP');
     });
 
+    it('fromBase32_strictAcceptsCanonical', 0, () => {
+      // 归一化（大小写/空白/尾部填充）本身仍被容忍：strict 只拒「规范 base32 不可能产生」的文本。
+      const ref: Secret = Secret.fromBase32('JBSWY3DPEHPK3PXP');
+      const strict: Secret = Secret.fromBase32('jbswy3dpehpk3pxp', { strict: true });
+      const messy: Secret = Secret.fromBase32(' jbsw y3dp ehpk 3pxp======', { strict: true });
+      expect(strict.toBase32()).assertEqual(ref.toBase32());
+      expect(messy.toBase32()).assertEqual(ref.toBase32());
+      expect(strict.toBase32()).assertEqual('JBSWY3DPEHPK3PXP');
+    });
+
+    it('fromBase32_strictRejectsNonCanonical', 0, () => {
+      // 'MB'：末字符 'B'=1，低 2 位非 0（宽松模式会静默改成 'MA'）；'MZXW6Y'：尾长 6 非法。
+      expectThrowsCode(() => Secret.fromBase32('MB', { strict: true }), OtpErrorCode.INVALID_BASE32_PADDING);
+      expectThrowsCode(() => Secret.fromBase32('MZXW6Y', { strict: true }), OtpErrorCode.INVALID_BASE32_PADDING);
+      // 非法字符优先级高于尾长
+      expectThrowsCode(() => Secret.fromBase32('AB1', { strict: true }), OtpErrorCode.INVALID_BASE32_CHAR);
+    });
+
+    it('fromBase32_defaultAndExplicitFalseStayLenient', 0, () => {
+      // 默认 / 显式 false / 空对象三种写法都不启用 strict；'MB' 仍按宽松模式规范化为 'MA'。
+      expect(Secret.fromBase32('MB').toBase32()).assertEqual('MA');
+      expect(Secret.fromBase32('MB', {}).toBase32()).assertEqual('MA');
+      expect(Secret.fromBase32('MB', { strict: false }).toBase32()).assertEqual('MA');
+    });
+
     it('fromBytes_emptyThrows', 0, () => {
       expectThrowsCode(() => Secret.fromBytes(new Uint8Array()), OtpErrorCode.EMPTY_SECRET);
     });
