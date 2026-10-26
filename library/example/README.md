@@ -80,11 +80,13 @@ import { Secret, TOTP, OtpError } from '@yansongda/otp';
 
 try {
   const secret = Secret.fromBase32(userInput);  // invalid characters / too short -> throws
+  // optional strict mode: also reject non-canonical base32 tails (INVALID_BASE32_PADDING)
+  const strict = Secret.fromBase32(userInput, { strict: true });
   new TOTP({ secret: secret.toBase32(), digits: 6 });
 } catch (e) {
   if (e instanceof OtpError) {
     // Branch on the stable string code, never on the message text.
-    // e.code === 'INVALID_BASE32_CHAR' | 'INVALID_DIGITS' | 'INVALID_ALGORITHM' | ...
+    // e.code === 'INVALID_BASE32_CHAR' | 'INVALID_BASE32_PADDING' | 'INVALID_DIGITS' | 'INVALID_ALGORITHM' | ...
   }
 }
 ```
@@ -101,5 +103,5 @@ against the RFC vectors in `library/src/test/vectors/RfcVectors.ets`.
 - 典型流程：`new TOTP({ secret })` → `verify(token, { window: 1 })` → 命中时 `syncClockOffset(delta)`；
   `window` 越大越宽松，校准后应尽快收紧。
 - HOTP 必须由调用方持久化下一个计数器（`base + delta + 1`），库不会自动推进。
-- 所有失败都抛 `OtpError`，请按 `e.code`（17 个稳定字符串码）分支，不要匹配 message 文案。
+- 所有失败都抛 `OtpError`，请按 `e.code`（18 个稳定字符串码）分支，不要匹配 message 文案。
 - 密钥请用 `Secret.generate()` 生成（默认 20 字节 / 160 bit）；`Secret` 已做序列化脱敏。

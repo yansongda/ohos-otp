@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.1.0 - 2026-10-26
+
+> 新增**可选**严格 base32 解析（`{ strict: true }`）与错误码 `INVALID_BASE32_PADDING`；不传 `options` 时行为与 v1.0.x 逐字一致，单参调用无需改动。
+
+#### Added
+
+- `Secret.fromBase32(s, options?: ParseOptions)`：新增可选参数，`{ strict: true }` 时要求归一化后为规范 base32
+- `OTPAuthURI.parse(uri, options?: ParseOptions)`：透传同一开关（只影响 `secret`，其余字段不变）
+- 新错误码 `INVALID_BASE32_PADDING`：`OtpErrorCode` 17 → 18 个成员；仅 strict 模式抛出，其余 17 个取值逐字不变
+- `ParseOptions` 接口（经 barrel 导出；缺省 / `{ strict: false }` = 原有宽松行为）
+- 测试：RFC 4648 §10 base32 向量入库（`src/test/vectors/RfcVectors.ets`），新增 13 条用例（本地 252 → 265）
+
+#### Changed
+
+- `internal/Base32` 抽出 `normalize()`，`decode` / 新增的 `decodeStrict` 共用（归一化表达式一字未改，避免「规范形式」判据漂移）
+- `scripts/ci/check-invariants.mjs` 错误码基线 17 → 18
+- 文档：RFC 设计文档、README/README-cn（API 表、lenient vs strict 对照表、错误码表 18 行）、AGENTS.md、`example/README.md` 同步
+
+#### Fixed / 安全说明
+
+- strict 判据为「归一化后 `encode(decode(s)) === s`」，同时覆盖两类静默失真：尾长 ∉ `{0,2,4,5,7}`（结构性非法）与末字符填充位非 0（被截断/改写）。大小写、空白、尾部 `=` 仍被容忍
+- 唯一的同输入不同码：`'A'` 宽松抛 `SECRET_TOO_SHORT`，strict 抛 `INVALID_BASE32_PADDING`（已在 README 与用例中锁定）
+
+#### Compatibility
+
+- 无破坏性变更：新增可选参数、可选接口与新错误码；消费方按 `e.code` 分支时落入 `default` 即可
+
+---
+
 ## 1.0.2 - 2026-10-05
 
 > 仅打包与元数据变更，**无源码 / API 行为变化**；本版用于补齐 OHPM 包质量分的两个失分项。

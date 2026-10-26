@@ -52,6 +52,8 @@ const hotpDelta: number | null = hotp.verify(hotpCode, { window: 5 });
 
 // ---- Secret 工具 ----
 const secret = Secret.fromBase32('JBSWY3DPEHPK3PXP');
+// 可选严格模式：拒绝非规范 base32 尾长/尾位（抛 INVALID_BASE32_PADDING）
+const strictSecret = Secret.fromBase32('JBSWY3DPEHPK3PXP', { strict: true });
 const randomSecret = Secret.generate();      // 20 字节 = 160 bit（RFC 4226 §4 R6 推荐）
 const b32: string = secret.toBase32();       // 规范化大写、无填充
 const bits: number = secret.bitLength;       // 该 10 字节密钥为 80
@@ -102,17 +104,32 @@ try {
 | `hotp.generate(counter?: number): string` | 生成验证码（缺省用构造值） |
 | `hotp.verify(token: string, options?: VerifyOptions): number \| null` | 恒定时间比对；返回 counter 偏移或 `null` |
 | `hotp.toURI(): string` / `HOTP.fromURI(uri: string): HOTP` | 序列化为 / 从 `otpauth://hotp/...` URI 恢复 |
-| `Secret.fromBase32(s: string): Secret` | 从 base32 字符串构造（宽松：大小写/空白/填充） |
+| `Secret.fromBase32(s: string, options?: ParseOptions): Secret` | 从 base32 字符串构造（默认宽松：大小写/空白/填充；`{ strict: true }` 额外要求规范尾部） |
 | `Secret.fromBytes(bytes: Uint8Array): Secret` | 从字节数组构造（拷贝语义） |
 | `Secret.generate(bytes: number = 20): Secret` | 经注册的随机源生成随机 secret |
 | `secret.toBase32(): string` | 规范化大写、无填充 base32 |
 | `secret.bytes` / `secret.byteLength` / `secret.bitLength` | 强度自省（bytes 为拷贝） |
 | `secret.toJSON(): string` | 序列化脱敏——`JSON.stringify` 时返回 `'[REDACTED]'` |
-| `OTPAuthURI.parse(uri: string): OtpAuthParams` | 解析 `otpauth://` URI（未知 query 参数忽略） |
+| `OTPAuthURI.parse(uri: string, options?: ParseOptions): OtpAuthParams` | 解析 `otpauth://` URI（未知 query 参数忽略；`{ strict: true }` 校验 secret 尾部） |
 | `OTPAuthURI.build(params: OtpAuthParams): string` | 生成规范 `otpauth://` URI |
+| `interface ParseOptions { strict?: boolean }` | `Secret.fromBase32` / `OTPAuthURI.parse` 共用的解析选项；缺省为宽松 |
 | `enum OtpAlgorithm { SHA1, SHA256, SHA512 }` | 算法枚举（字符串值） |
 | `enum OtpType { TOTP = 'totp', HOTP = 'hotp' }` | URI 类型枚举（字符串值） |
 | `class OtpError extends Error { readonly code: OtpErrorCode }` | 统一错误模型；按 `code` 精确分支 |
+
+### 严格 base32 解析
+
+`{ strict: true }`（`Secret.fromBase32` 与 `OTPAuthURI.parse` 共用）只拒绝「规范 base32 不可能产生」的文本；判定发生在库内**归一化之后**，因此大小写、空白、尾部 `=` 仍被容忍：
+
+| 输入（归一化后） | `len % 8` | 默认 | `{ strict: true }` |
+|---|---|---|---|
+| `JBSWY3DPEHPK3PXP`（16 字符） | 0 | OK | OK |
+| `MY` / `MZXQ` / `MZXW6` / `MZXW6YQ`（RFC 4648 §10） | 2/4/5/7 | OK | OK |
+| `MB` / `MZXR` / `MZXW7` / `MZXW6YT`（填充位非 0） | 2/4/5/7 | 静默重编码（`MA` …） | `INVALID_BASE32_PADDING` |
+| `A` / `AAA` / `MZXW6Y`（不可能的尾长） | 1/3/6 | `SECRET_TOO_SHORT` / OK / OK | `INVALID_BASE32_PADDING` |
+| `AB1`（非法字符） | 3 | `INVALID_BASE32_CHAR` | `INVALID_BASE32_CHAR`（优先校验） |
+
+适合用在「账户导入」等边界：拒绝被截断或手工改写的 secret，而不是静默规范化。该判据等价于 `encode(decode(normalized)) === normalized`（decode 对缺位补 0）。
 
 ## RFC 符合性
 
@@ -126,13 +143,14 @@ try {
 
 ## 错误处理与故障排查
 
-一切失败均抛 `OtpError`，携带固定 `code`（字符串）；错误消息绝不包含 secret、token 或密钥材料。下表覆盖全部 17 个错误码（`OtpErrorCode` 经 barrel 导出）。`NOT_IMPLEMENTED` 为内部预留占位，库内无抛出点，正常使用不会遇到。
+一切失败均抛 `OtpError`，携带固定 `code`（字符串）；错误消息绝不包含 secret、token 或密钥材料。下表覆盖全部 18 个错误码（`OtpErrorCode` 经 barrel 导出）。`NOT_IMPLEMENTED` 为内部预留占位，库内无抛出点，正常使用不会遇到。
 
 | `OtpErrorCode` | 现象 | 根因 | 处置 |
 |---|---|---|---|
 | `EMPTY_SECRET` | 构造 / URI 解析抛错，secret 为空 | secret 缺失或空串 | 提供非空 base32 secret |
 | `INVALID_BASE32_CHAR` | secret 含非法字符 | 字符不在 base32 字母表 | 仅使用 `A–Z` 与 `2–7` |
 | `SECRET_TOO_SHORT` | secret 解码后不足 1 字节 | base32 串过短 | 至少提供 8 个字符（1 字节） |
+| `INVALID_BASE32_PADDING` | 仅 `{ strict: true }`：secret 不是规范 base32 | 尾长 ∉ `{0,2,4,5,7}`，或末字符填充位非 0 | 用 `secret.toBase32()` 重新编码；或去掉 `strict` 保持原有宽松行为 |
 | `SECRET_TOO_WEAK` | `minSecretBits` 校验失败 | `secret.bitLength < minSecretBits` | 换更强的密钥或调低 `minSecretBits` |
 | `INVALID_ALGORITHM` | 算法不被接受 | 非 SHA1 / SHA256 / SHA512 | 使用三种受支持算法之一 |
 | `INVALID_DIGITS` | 位数不被接受 | 非 6 / 7 / 8 | 使用 6、7 或 8 |

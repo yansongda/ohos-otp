@@ -4,10 +4,10 @@
 
 ## 1. 项目定位
 
-- `library/` = HAR 库 **`@yansongda/otp` v1.0.0**：RFC 4226 HOTP + RFC 6238 TOTP（SHA1/SHA256/SHA512，6/7/8 位，otpauth URI，漂移窗口，时钟偏移校准）。零运行时依赖。
+- `library/` = HAR 库 **`@yansongda/otp` v1.1.0**：RFC 4226 HOTP + RFC 6238 TOTP（SHA1/SHA256/SHA512，6/7/8 位，otpauth URI，漂移窗口，时钟偏移校准，可选严格 base32 解析）。零运行时依赖。
 - `entry/` = 消费方 smoke demo（仅依赖 barrel，**不参与** HAR 打包）。
 - 兼容性：`compatibleSdkVersion 6.0.0(20)`（API 12–19 工程无法消费，README 已声明）。
-- 现状：本地单测 247 全绿 / 覆盖率 lines 90.3%；设备端 `ohosTest` 37/37；RFC 向量 10/10 + 18/18；`ohpm prepublish` 通过。已发布至 OHPM（当前版本以 `library/oh-package.json5` 为准）。
+- 现状：本地单测 265 全绿 / 覆盖率 lines 90.65%；设备端 `ohosTest` 37/37；RFC 向量 10/10 + 18/18；`ohpm prepublish` 通过。已发布至 OHPM（当前版本以 `library/oh-package.json5` 为准）。
 
 ## 2. 分层与不变量（**改动必须遵守**）
 
@@ -28,7 +28,7 @@
 6. **`verify` 恒定时间**：窗口内**扫完所有候选**后才返回首个命中 delta，禁止加早退优化。
 7. **`library/example/` 随 HAR 发布，不得删除/改名**：hvigor 对 bytecode HAR 的 release 白名单目录名就是 `example`（`RELEASE_HAR_WHITE_LIST_DIR_NAME`），该目录会被原样打进包内 `package/example/`；OHPM「支持文档 / example」的 20 分完全依赖它。里面只放文档（README），不放不参与编译与 lint 的源码。缺失由 `scripts/ci/check-invariants.mjs` 与 CI 的 HAR 内容校验拦截。
 
-其他冻结契约：`OtpOptions` 字段名/可选性冻结（v1 起仅允许**新增可选字段**）；`OtpErrorCode` 固定 17 个字符串码；全同步 API（`*Sync` 链路）；零运行时依赖。
+其他冻结契约：`OtpOptions` 字段名/可选性冻结（v1 起仅允许**新增可选字段**）；`OtpErrorCode` 的 v1 17 个取值冻结（v1.1.0 仅**新增** `INVALID_BASE32_PADDING`，现共 18 个）；全同步 API（`*Sync` 链路）；零运行时依赖。
 
 ## 3. 命令（实测可跑）
 
@@ -43,7 +43,7 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 
 # 本地单测 + 覆盖率（PC；改算法逻辑后必跑）
 $HB --no-daemon -c modelVersion=6.1.1 test --mode module -p module=library@default -p testType=local -p coverage=true
-#   → Tests run: 247, Pass: 247；覆盖率 lines ≈ 90%
+#   → Tests run: 265, Pass: 265；覆盖率 lines ≈ 90.65%
 
 # 库产物（release）
 $HB --no-daemon -c modelVersion=6.1.1 assembleHar --mode module -p module=library@default -p product=default -p buildMode=release

@@ -52,6 +52,8 @@ const hotpDelta: number | null = hotp.verify(hotpCode, { window: 5 });
 
 // ---- Secret helpers ----
 const secret = Secret.fromBase32('JBSWY3DPEHPK3PXP');
+// opt-in strict parsing: reject non-canonical base32 tails (throws INVALID_BASE32_PADDING)
+const strictSecret = Secret.fromBase32('JBSWY3DPEHPK3PXP', { strict: true });
 const randomSecret = Secret.generate();      // 20 bytes = 160 bits (RFC 4226 §4 R6 recommendation)
 const b32: string = secret.toBase32();       // normalized uppercase, no padding
 const bits: number = secret.bitLength;       // 80 for this 10-byte key
@@ -102,17 +104,32 @@ try {
 | `hotp.generate(counter?: number): string` | Generate the code (default: constructor counter) |
 | `hotp.verify(token: string, options?: VerifyOptions): number \| null` | Constant-time comparison; returns the counter offset or `null` |
 | `hotp.toURI(): string` / `HOTP.fromURI(uri: string): HOTP` | Serialize to / restore from an `otpauth://hotp/...` URI |
-| `Secret.fromBase32(s: string): Secret` | Build from a base32 string (lenient: case / whitespace / padding) |
+| `Secret.fromBase32(s: string, options?: ParseOptions): Secret` | Build from a base32 string (default lenient: case / whitespace / padding; `{ strict: true }` also requires a canonical tail) |
 | `Secret.fromBytes(bytes: Uint8Array): Secret` | Build from raw bytes (copied) |
 | `Secret.generate(bytes: number = 20): Secret` | Generate a random secret via the registered random source |
 | `secret.toBase32(): string` | Normalized uppercase base32 without padding |
 | `secret.bytes` / `secret.byteLength` / `secret.bitLength` | Strength introspection (bytes are a copy) |
 | `secret.toJSON(): string` | Redaction hook — returns `'[REDACTED]'` under `JSON.stringify` |
-| `OTPAuthURI.parse(uri: string): OtpAuthParams` | Parse an `otpauth://` URI (unknown query params are ignored) |
+| `OTPAuthURI.parse(uri: string, options?: ParseOptions): OtpAuthParams` | Parse an `otpauth://` URI (unknown query params are ignored; `{ strict: true }` validates the secret tail) |
 | `OTPAuthURI.build(params: OtpAuthParams): string` | Build a canonical `otpauth://` URI |
+| `interface ParseOptions { strict?: boolean }` | Shared parsing options for `Secret.fromBase32` / `OTPAuthURI.parse`; defaults to lenient |
 | `enum OtpAlgorithm { SHA1, SHA256, SHA512 }` | Algorithm enum (string values) |
 | `enum OtpType { TOTP = 'totp', HOTP = 'hotp' }` | URI type enum (string values) |
 | `class OtpError extends Error { readonly code: OtpErrorCode }` | Unified error model; branch on `code` |
+
+### Strict base32 parsing
+
+`{ strict: true }` (shared by `Secret.fromBase32` and `OTPAuthURI.parse`) rejects only text that canonical base32 cannot produce. It is evaluated **after** the library's own normalization, so case, whitespace and trailing `=` are still tolerated:
+
+| Input (after normalization) | `len % 8` | Default | `{ strict: true }` |
+|---|---|---|---|
+| `JBSWY3DPEHPK3PXP` (16 chars) | 0 | OK | OK |
+| `MY` / `MZXQ` / `MZXW6` / `MZXW6YQ` (RFC 4648 §10) | 2/4/5/7 | OK | OK |
+| `MB` / `MZXR` / `MZXW7` / `MZXW6YT` (non-zero padding bits) | 2/4/5/7 | silently re-encoded (`MA` …) | `INVALID_BASE32_PADDING` |
+| `A` / `AAA` / `MZXW6Y` (impossible tail length) | 1/3/6 | `SECRET_TOO_SHORT` / OK / OK | `INVALID_BASE32_PADDING` |
+| `AB1` (illegal character) | 3 | `INVALID_BASE32_CHAR` | `INVALID_BASE32_CHAR` (checked first) |
+
+Use it at provisioning boundaries to reject truncated or hand-edited secrets instead of silently canonicalizing them. The judgment is equivalent to `encode(decode(normalized)) === normalized` (decode zero-fills missing bits).
 
 ## RFC compliance
 
@@ -126,13 +143,14 @@ try {
 
 ## Error handling and troubleshooting
 
-All failures throw `OtpError` with a fixed `code` (string). Messages never contain the secret, token or key material. The table below covers all 17 codes of `OtpErrorCode` (exported via the barrel). `NOT_IMPLEMENTED` is a reserved internal placeholder with no throw site in the library — normal usage never encounters it.
+All failures throw `OtpError` with a fixed `code` (string). Messages never contain the secret, token or key material. The table below covers all 18 codes of `OtpErrorCode` (exported via the barrel). `NOT_IMPLEMENTED` is a reserved internal placeholder with no throw site in the library — normal usage never encounters it.
 
 | `OtpErrorCode` | Symptom | Root cause | Action |
 |---|---|---|---|
 | `EMPTY_SECRET` | Construction / URI parse throws, secret is empty | Missing or empty secret | Provide a non-empty base32 secret |
 | `INVALID_BASE32_CHAR` | Secret contains an illegal character | Character outside the base32 alphabet | Use only `A–Z` and `2–7` |
 | `SECRET_TOO_SHORT` | Secret decodes to less than 1 byte | Base32 string too short | Provide at least 8 characters (1 byte) |
+| `INVALID_BASE32_PADDING` | Only with `{ strict: true }`: the secret is not canonical base32 | Tail length ∉ `{0,2,4,5,7}`, or the last character's padding bits are non-zero | Re-encode with `secret.toBase32()`; or drop `strict` to keep the legacy lenient behavior |
 | `SECRET_TOO_WEAK` | `minSecretBits` check fails | `secret.bitLength < minSecretBits` | Use a stronger key or lower `minSecretBits` |
 | `INVALID_ALGORITHM` | Algorithm is not accepted | Not SHA1 / SHA256 / SHA512 | Use one of the three supported algorithms |
 | `INVALID_DIGITS` | Digits is not accepted | Not 6 / 7 / 8 | Use 6, 7 or 8 |
