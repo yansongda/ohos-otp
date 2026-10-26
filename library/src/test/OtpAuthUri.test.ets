@@ -142,6 +142,27 @@ export default function otpAuthUriTest() {
         OtpErrorCode.INVALID_COUNTER);
     });
 
+    it('parse_strictAcceptsCanonicalSecret', 0, () => {
+      // 大小写/空白等归一化仍容忍，其余字段行为不变
+      const p: OtpAuthParams = OTPAuthURI.parse(
+        'otpauth://totp/alice?secret=jbswy3dpehpk3pxp&digits=8', { strict: true });
+      expect(p.secret).assertEqual('JBSWY3DPEHPK3PXP');
+      expect(p.digits).assertEqual(8);
+      expect(p.period).assertEqual(30);
+    });
+
+    it('parse_strictRejectsNonCanonicalSecret', 0, () => {
+      // 'MZXW6YT'：尾长 7，'T'=19 低 3 位非 0
+      expectThrowsCode(() => OTPAuthURI.parse('otpauth://totp/alice?secret=MZXW6YT', { strict: true }),
+        OtpErrorCode.INVALID_BASE32_PADDING);
+    });
+
+    it('parse_defaultStaysLenientOnSameUri', 0, () => {
+      // 同一 URI 不传 options：保持 v1 宽松行为，静默规范化为 'MZXW6YQ'
+      const p: OtpAuthParams = OTPAuthURI.parse('otpauth://totp/alice?secret=MZXW6YT');
+      expect(p.secret).assertEqual('MZXW6YQ');
+    });
+
     it('build_exactTotpFullOutput', 0, () => {
       const p: OtpAuthParams = {
         type: OtpType.TOTP,

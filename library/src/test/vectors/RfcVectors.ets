@@ -160,3 +160,22 @@ export const SEEDS: Seeds = {
 /** A.6 第 1 行：SHA256 / digits=8 / counter=0（period=60 → floor(59/60)=0）。 */
 export const SHA256_C0_8DIGIT = '18920136';
 export const SHA256_C0_DIGEST = 'c79f479abc3c567224e3f8c8e46b2631d5b3f319a06a1e472cbdbee3aa479848';
+
+/**
+ * RFC 4648 §10 测试向量（base32 列，逐字照抄含 '=' 填充；本库规范输出为去 '=' 后的大写形式）。
+ * 用途：锁定 strict 解码的合法尾长集合 {0,2,4,5,7} —— 这 7 条恰好覆盖全部合法尾长。
+ */
+export interface Rfc4648Base32Vector {
+  plain: string;
+  base32Padded: string;
+}
+
+export const RFC4648_BASE32: Rfc4648Base32Vector[] = [
+  { plain: '', base32Padded: '' },
+  { plain: 'f', base32Padded: 'MY======' },
+  { plain: 'fo', base32Padded: 'MZXQ====' },
+  { plain: 'foo', base32Padded: 'MZXW6===' },
+  { plain: 'foob', base32Padded: 'MZXW6YQ=' },
+  { plain: 'fooba', base32Padded: 'MZXW6YTB' },
+  { plain: 'foobar', base32Padded: 'MZXW6YTBOI======' }
+];

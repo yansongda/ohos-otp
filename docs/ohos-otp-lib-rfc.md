@@ -95,7 +95,7 @@ ohos-otp/
 │   ├── CHANGELOG.md / LICENSE           OHPM 上架硬性要求（CHANGELOG 必含当前版本号；MIT）
 │   └── src/
 │       ├── main/ets/
-│       │   ├── OtpError.ets             17 个错误码 + OtpError
+│       │   ├── OtpError.ets             18 个错误码 + OtpError
 │       │   ├── OtpOptions.ets           全部对外选项/返回类型（字段冻结）
 │       │   ├── Secret.ets               base32/bytes 构造、随机生成、强度自省、toJSON 脱敏
 │       │   ├── HOTP.ets / TOTP.ets      RFC 4226 / RFC 6238 公开类（TOTP 含 remaining/progress/syncClockOffset）
@@ -202,9 +202,9 @@ ohos-otp/
 | `hotp.generate(counter?: number): string` | RFC 4226 算码 | RFC 4226 §5.3 |
 | `hotp.verify(token: string, options?: VerifyOptions): number \| null` | 返回命中 counter 偏移（窗口以**步**=1 计数） | RFC 4226 §7.4 |
 | `HOTP.fromURI(uri: string): HOTP` / `hotp.toURI()` | 同上（`counter` 为 URI 必填参数） | GA Key URI |
-| `Secret.fromBase32(s)` / `.fromBytes(u8)` / `.generate(bytes = 20)` | 规范化 / 构造 / 随机生成（默认 20 字节 = RFC 4226 推荐 160 bit）；随机源经 `requireRandom()` | RFC 4226 §4 R6 |
+| `Secret.fromBase32(s, options?)` / `.fromBytes(u8)` / `.generate(bytes = 20)` | 规范化 / 构造 / 随机生成（默认 20 字节 = RFC 4226 推荐 160 bit）；随机源经 `requireRandom()`；`{ strict: true }` 追加规范 base32 校验 | RFC 4226 §4 R6 |
 | `secret.toBase32()` / `.bytes` / `.byteLength` / `.bitLength` / `.toJSON()` | 规范化输出、强度自省、**序列化脱敏**（`toJSON()` 返回 `'[REDACTED]'`） | — |
-| `OTPAuthURI.parse(uri): OtpAuthParams` / `OTPAuthURI.build(p): string` | 纯解析/生成（不做实例构造） | GA Key URI |
+| `OTPAuthURI.parse(uri, options?)` / `OTPAuthURI.build(p): string` | 纯解析/生成（不做实例构造）；`{ strict: true }` 校验 secret 尾部 | GA Key URI |
 | `enum OtpAlgorithm { SHA1, SHA256, SHA512 }` | 算法枚举（字符串值 `'SHA1'`/`'SHA256'`/`'SHA512'`） | RFC 6238 §1.2 |
 | `enum OtpType { TOTP = 'totp', HOTP = 'hotp' }` | URI 类型枚举 | GA Key URI |
 | `class OtpError extends Error { readonly code: OtpErrorCode }` | 统一错误模型（见 §3.5） | — |
@@ -307,6 +307,8 @@ progress     = (((s - t0) % period) + period) % period / period   // 落在 [0, 
 
 解析要点：scheme 大小写不敏感（`OTPAUTH://`）；不做 `URLSearchParams` 假设（ArkTS 可用性不确定），手写 query 拆分；百分号解码失败回退原串；secret 输出统一规范化为**大写无填充 base32**。
 
+**严格模式（可选，v1.1.0）**：`parse(uri, { strict: true })` 在归一化后追加规范尾长/尾位校验（尾长 ∈ `{0,2,4,5,7}` 且末字符填充位为 0，等价于 `encode(decode(normalized)) === normalized`），不合规抛 `INVALID_BASE32_PADDING`；大小写/空白/尾部 `=` 仍被容忍。缺省（不传 options）与 v1 行为逐字一致。
+
 > **实现注意**：`period` 会改变 counter 的取值——`fromURI` 带 `period=60` 时，`generate(59000)` 的 counter 是 `floor(59/60)=0`，**不是** 1。
 
 ### 3.5 错误模型
@@ -315,6 +317,7 @@ progress     = (((s - t0) % period) + period) % period / period   // 落在 [0, 
 export enum OtpErrorCode {
   EMPTY_SECRET = 'EMPTY_SECRET',
   INVALID_BASE32_CHAR = 'INVALID_BASE32_CHAR',
+  INVALID_BASE32_PADDING = 'INVALID_BASE32_PADDING',
   SECRET_TOO_SHORT = 'SECRET_TOO_SHORT',
   SECRET_TOO_WEAK = 'SECRET_TOO_WEAK',
   INVALID_ALGORITHM = 'INVALID_ALGORITHM',
@@ -333,7 +336,7 @@ export enum OtpErrorCode {
 }
 ```
 
-**共 17 个成员，取值必须为上述字符串字面量**（字符串枚举在本机 SDK 的 `.d.ts` 中有实际使用；调用方按字符串比较 `e.code`）。
+**共 18 个成员，取值必须为上述字符串字面量**（字符串枚举在本机 SDK 的 `.d.ts` 中有实际使用；调用方按字符串比较 `e.code`）。其中 `INVALID_BASE32_PADDING` 为 v1.1.0 新增（仅 `{ strict: true }` 抛出），其余 17 个取值与 v1 逐字一致、不得改值。
 
 | 规则 | 说明 |
 |---|---|
@@ -341,6 +344,7 @@ export enum OtpErrorCode {
 | **消息不含 secret、不含派生密钥** | 硬约束；`CRYPTO_FAILED` 统一为固定文案，不透传原生错误对象 |
 | `CRYPTO_NOT_INITIALIZED` 专用于「注册表未注册」 | 与「平台调用失败」(`CRYPTO_FAILED`) 分开，便于宿主排障（深路径导入且未注入 provider 时会遇到） |
 | 选项校验在**构造期**完成 | 失败尽早暴露；对 `secret` 只解析一次并缓存 bytes |
+| strict 的判定发生在归一化**之后** | `{ strict: true }` 只拒绝尾长 ∉ `{0,2,4,5,7}` 或填充位非 0（`INVALID_BASE32_PADDING`）；大小写/空白/尾部 `=` 仍容忍；字符错误优先于尾长 |
 | 不吞错、不打日志、不上报 | 库零 hilog 依赖，错误归属调用方 |
 | `NOT_IMPLEMENTED` 为枚举占位，无任何代码路径抛出 | 保证错误码表完整性 |
 

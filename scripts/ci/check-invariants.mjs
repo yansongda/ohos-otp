@@ -21,7 +21,7 @@ const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const BASELINE = {
   localTestCases: 240, // library/src/test 的 it( 数量（PC Local Test）
   deviceTestCases: 37, // library/src/ohosTest 的 it( 数量（真实 crypto，需设备）
-  errorCodeMembers: 17, // OtpErrorCode 成员数：v1 起冻结，不得增删
+  errorCodeMembers: 18, // OtpErrorCode 成员数：v1 的 17 个取值冻结，v1.1.0 仅新增 INVALID_BASE32_PADDING
 };
 
 const LIB_SRC = 'library/src/main/ets';
