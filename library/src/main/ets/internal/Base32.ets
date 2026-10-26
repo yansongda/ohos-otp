@@ -1,18 +1,27 @@
 /**
  * RFC 4648 §6 base32 编解码（纯函数，kit-free）。
- * 字母表 A-Z + 2-7；解码宽松（容忍空白/大小写/尾部 '='），编码输出大写无填充。
+ * 字母表 A-Z + 2-7；encode 输出大写无填充；decode 宽松（容忍空白/大小写/尾部 '='），
+ * decodeStrict 追加尾长与填充位校验（供 `{ strict: true }` 使用）。
  */
 import { OtpError, OtpErrorCode } from '../OtpError';
 
 const BASE32_ALPHABET: string = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
 /**
- * RFC 4648 §6 解码：去空白 → 去尾部 '=' → 转大写。
+ * 归一化：去空白 → 去尾部 '=' → 转大写。
+ * decode 与 decodeStrict 必须共用本函数（同一表达式）：各自复制一份会让「规范形式」的判据漂移。
+ */
+export function normalize(input: string): string {
+  return input.replace(/\s/g, '').replace(/=+$/, '').toUpperCase();
+}
+
+/**
+ * RFC 4648 §6 解码：先经 normalize() 归一化。
  * 空串抛 EMPTY_SECRET；非法字符抛 INVALID_BASE32_CHAR；解码长度 0 抛 SECRET_TOO_SHORT。
  * 实现：按 8 字符一组（组宽 5 字节）位拼接，缺位补 0，末组按剩余有效位截断。
  */
 export function decode(input: string): Uint8Array {
-  const normalized: string = input.replace(/\s/g, '').replace(/=+$/, '').toUpperCase();
+  const normalized: string = normalize(input);
 
   if (0 === normalized.length) {
     throw new OtpError(OtpErrorCode.EMPTY_SECRET, 'EMPTY_SECRET');
@@ -93,4 +102,42 @@ export function encode(bytes: Uint8Array): string {
     result += BASE32_ALPHABET.charAt((buffer << (5 - bitsLeft)) & 31);
   }
   return result;
+}
+
+/**
+ * 严格解码：归一化后必须是「解码再编码可无损还原」的规范形式。
+ *
+ * 为什么这样判定：RFC 4648 §6 以 8 字符（40 bit = 5 字节）为单位，合法尾长只有 {0,2,4,5,7}；
+ * 尾长 ∈ {1,3,6} 对应「不足整字节的非零余量」或「多出 1 bit」，decode 会静默丢弃这些位。
+ * 尾长合法时，末字符的低位填充位必须为 0 —— 等价于 encode(decode(s)) === s（decode 对缺位补 0），
+ * 所以用一次再编码比对即可覆盖两种失真，无需维护逐尾长的掩码表。
+ *
+ * 归一化本身（大小写/空白/尾部 '='）仍被容忍：strict 拒绝的是「规范 base32 不可能产生」的文本，
+ * 而不是大小写风格。错误码优先级与 decode 一致：空 → EMPTY_SECRET，非法字符 → INVALID_BASE32_CHAR
+ * （先于尾长判定，让「有错别字」优先暴露），再到 INVALID_BASE32_PADDING。
+ */
+export function decodeStrict(input: string): Uint8Array {
+  const normalized: string = normalize(input);
+
+  if (0 === normalized.length) {
+    throw new OtpError(OtpErrorCode.EMPTY_SECRET, 'EMPTY_SECRET');
+  }
+
+  for (let i = 0; i < normalized.length; i++) {
+    if (-1 === BASE32_ALPHABET.indexOf(normalized.charAt(i))) {
+      throw new OtpError(OtpErrorCode.INVALID_BASE32_CHAR, 'INVALID_BASE32_CHAR');
+    }
+  }
+
+  const tail: number = normalized.length % 8;
+  if (1 === tail || 3 === tail || 6 === tail) {
+    throw new OtpError(OtpErrorCode.INVALID_BASE32_PADDING, 'INVALID_BASE32_PADDING');
+  }
+
+  // 已归一化，decode 内部的 normalize 是幂等的；单字符长度已在上面先抛 PADDING，不会落到 SECRET_TOO_SHORT。
+  const bytes: Uint8Array = decode(normalized);
+  if (encode(bytes) !== normalized) {
+    throw new OtpError(OtpErrorCode.INVALID_BASE32_PADDING, 'INVALID_BASE32_PADDING');
+  }
+  return bytes;
 }

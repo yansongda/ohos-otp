@@ -5,7 +5,8 @@
  * 脱敏由 toJSON() 承担——JSON.stringify 会调用它，而 private 只是编译期约束。
  */
 import { OtpError, OtpErrorCode } from './OtpError';
-import { decode, encode } from './internal/Base32';
+import { ParseOptions } from './OtpOptions';
+import { decode, decodeStrict, encode } from './internal/Base32';
 import { requireRandom } from './internal/HmacProvider';
 
 export class Secret {
@@ -15,9 +16,14 @@ export class Secret {
     this._bytes = bytes;
   }
 
-  /** 从 base32 字符串构造，宽松解析（容忍大小写/空白/填充）；空结果抛 EMPTY_SECRET。 */
-  static fromBase32(input: string): Secret {
-    const bytes: Uint8Array = decode(input);
+  /**
+   * 从 base32 字符串构造，默认宽松解析（容忍大小写/空白/填充）；空结果抛 EMPTY_SECRET。
+   * options.strict === true 时追加规范形式校验（尾长 ∈ {0,2,4,5,7} 且填充位为 0），
+   * 不合规抛 INVALID_BASE32_PADDING —— 用于「拒绝被截断/被改写的 secret」的导入边界。
+   */
+  static fromBase32(input: string, options?: ParseOptions): Secret {
+    const strict: boolean = options !== undefined && options.strict === true;
+    const bytes: Uint8Array = strict ? decodeStrict(input) : decode(input);
     if (0 === bytes.length) {
       throw new OtpError(OtpErrorCode.EMPTY_SECRET, 'EMPTY_SECRET');
     }

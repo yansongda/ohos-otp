@@ -11,7 +11,7 @@ import { installCryptoDefaults } from './src/main/ets/internal/CryptoSource';
 installCryptoDefaults();
 
 export { OtpError, OtpErrorCode } from './src/main/ets/OtpError';
-export { OtpAlgorithm, OtpType, HmacOptions, TotpOptions, HotpOptions, VerifyOptions, OtpAuthParams } from './src/main/ets/OtpOptions';
+export { OtpAlgorithm, OtpType, HmacOptions, TotpOptions, HotpOptions, VerifyOptions, ParseOptions, OtpAuthParams } from './src/main/ets/OtpOptions';
 export { Secret } from './src/main/ets/Secret';
 export { HOTP } from './src/main/ets/HOTP';
 export { TOTP } from './src/main/ets/TOTP';

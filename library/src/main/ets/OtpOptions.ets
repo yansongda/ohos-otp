@@ -50,6 +50,14 @@ export interface VerifyOptions {
   window?: number; // 漂移窗口（步），默认 0
 }
 
+/**
+ * 解析选项（`Secret.fromBase32` 与 `OTPAuthURI.parse` 共用，语义一致）。
+ * 缺省（undefined / false）保持 v1 的宽松行为。
+ */
+export interface ParseOptions {
+  strict?: boolean; // true：要求归一化后为规范 base32（尾长 ∈ {0,2,4,5,7} 且填充位为 0），否则 INVALID_BASE32_PADDING
+}
+
 /** otpauth URI 解析/构建的中间参数形态。 */
 export interface OtpAuthParams {
   type: OtpType; // 必填

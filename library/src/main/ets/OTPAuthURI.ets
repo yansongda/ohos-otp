@@ -4,16 +4,17 @@
  * query 手写拆分，不依赖平台 URL 查询解析 API。
  */
 import { OtpError, OtpErrorCode } from './OtpError';
-import { OtpAlgorithm, OtpAuthParams, OtpType } from './OtpOptions';
-import { decode, encode } from './internal/Base32';
+import { OtpAlgorithm, OtpAuthParams, OtpType, ParseOptions } from './OtpOptions';
+import { decode, decodeStrict, encode } from './internal/Base32';
 
 export class OTPAuthURI {
   /**
    * 解析 otpauth:// URI 为 OtpAuthParams：scheme 大小写不敏感 → type 限 totp/hotp →
    * label 百分号解码（失败回退原串）后按首个冒号切 issuer/account → query 手写拆分 →
    * secret 规范化为大写无填充 base32；未知参数忽略，query 的 issuer 优先于 label 前缀。
+   * options.strict === true 时 secret 必须是规范 base32（尾长/填充位），否则 INVALID_BASE32_PADDING。
    */
-  static parse(uri: string): OtpAuthParams {
+  static parse(uri: string, options?: ParseOptions): OtpAuthParams {
     // ① scheme 大小写不敏感
     const prefix: string = 'otpauth://';
     if (uri.toLowerCase().indexOf(prefix) !== 0) {
@@ -90,12 +91,13 @@ export class OTPAuthURI {
       }
     }
 
-    // secret 必填，经 Base32.decode 校验（空/非法字符/过短各自抛码）
+    // secret 必填，经 Base32 校验（空/非法字符/过短各自抛码）；strict 追加规范形式校验
     const secretRaw: string | undefined = params.get('secret');
     if (secretRaw === undefined || secretRaw === '') {
       throw new OtpError(OtpErrorCode.EMPTY_SECRET, 'EMPTY_SECRET');
     }
-    const secret: string = encode(decode(secretRaw));
+    const strict: boolean = options !== undefined && options.strict === true;
+    const secret: string = encode(strict ? decodeStrict(secretRaw) : decode(secretRaw));
 
     // issuer：query 优先，其次 label 前缀
     let issuer: string = issuerFromLabel;
